@@ -1,0 +1,1461 @@
+// Database schema — see docs/DATABASE.md for the full planned domain model.
+// Only tables needed by the current phase exist here; later tables arrive via migrations.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+/// Application-owned user record. Identity, passwords and sessions live in Keycloak;
+/// this row is created/synchronised on first authenticated API request.
+model User {
+  id              String     @id @default(uuid(7)) @db.Uuid
+  /// Keycloak `sub`: the stable identity key. Null only for accounts created before
+  /// Keycloak, until they are linked (see docs/adr/0013-keycloak-identity-provider.md).
+  keycloakSubject String?    @unique @map("keycloak_subject")
+  /// Copy of the identity provider's email (lower-cased). Not unique here: Keycloak
+  /// enforces uniqueness, and a stale copy must never block synchronisation.
+  email           String
+  fullName        String     @map("full_name")
+  status          UserStatus @default(ACTIVE)
+  emailVerifiedAt DateTime?  @map("email_verified_at") @db.Timestamptz(3)
+  lastLoginAt     DateTime?  @map("last_login_at") @db.Timestamptz(3)
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  auditLogs          AuditLog[]
+  profile            UserProfile?
+  skills             Skill[]
+  experiences        Experience[]
+  educations         Education[]
+  projects           Project[]
+  certifications     Certification[]
+  languages          ProfileLanguage[]
+  achievements       Achievement[]
+  resumes            Resume[]
+  resumeFiles        ResumeFile[]
+  defaultResume      DefaultResume?
+  jobs               Job[]
+  applications       Application[]
+  preparations       ApplicationPreparation[]
+  aiUsage            AiUsage[]
+  interviewSessions  InterviewSession[]
+  jobSearchAlerts    JobSearchAlert[]
+  jobSearchRuns      JobSearchRun[]
+  discoveredJobs     DiscoveredJob[]
+  jobRecommendations JobRecommendation[]
+  notifications      Notification[]
+
+  @@index([email])
+  @@map("users")
+}
+
+/// Append-only record of security-relevant events. Never store secrets or
+/// document contents in `metadata`.
+model AuditLog {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String
+  metadata  Json?
+  requestId String?  @map("request_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+// ─── Career profile ────────────────────────────────────────────────────────────
+// The profile is the user's source of truth. Only the user writes it (directly or by
+// explicitly importing reviewed resume data); nothing else may modify these facts.
+
+enum WorkMode {
+  REMOTE
+  HYBRID
+  ONSITE
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  FREELANCE
+  INTERNSHIP
+  TEMPORARY
+}
+
+enum SkillCategory {
+  FRONTEND
+  BACKEND
+  DATABASE
+  CLOUD
+  DEVOPS
+  TESTING
+  ARCHITECTURE
+  AI
+  TOOLS
+  SOFT_SKILLS
+  OTHER
+}
+
+/// One-to-one scalar profile data. Name and email live on `users`.
+model UserProfile {
+  userId             String           @id @map("user_id") @db.Uuid
+  phone              String?
+  location           String?
+  country            String?
+  linkedinUrl        String?          @map("linkedin_url")
+  githubUrl          String?          @map("github_url")
+  portfolioUrl       String?          @map("portfolio_url")
+  preferredRoles     String[]         @default([]) @map("preferred_roles")
+  preferredLocations String[]         @default([]) @map("preferred_locations")
+  workModes          WorkMode[]       @default([]) @map("work_modes")
+  salaryMin          Int?             @map("salary_min")
+  salaryMax          Int?             @map("salary_max")
+  salaryCurrency     String?          @map("salary_currency") @db.VarChar(3)
+  employmentTypes    EmploymentType[] @default([]) @map("employment_types")
+  noticePeriod       String?          @map("notice_period")
+  workAuthorization  String?          @map("work_authorization")
+  headline           String?
+  summary            String?
+  /// Exactly as entered by the user (e.g. 3.3). Never derived or rounded by the system.
+  yearsOfExperience  Decimal?         @map("years_of_experience") @db.Decimal(4, 1)
+  currentJobTitle    String?          @map("current_job_title")
+  currentCompany     String?          @map("current_company")
+  previousJobTitles  String[]         @default([]) @map("previous_job_titles")
+  previousCompanies  String[]         @default([]) @map("previous_companies")
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+model Skill {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  userId         String        @map("user_id") @db.Uuid
+  name           String
+  /// Lower-cased, whitespace-collapsed name; enforces one entry per skill per user.
+  normalizedName String        @map("normalized_name")
+  category       SkillCategory @default(OTHER)
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, normalizedName])
+  @@map("skills")
+}
+
+model Experience {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  /// User-defined display order (ascending).
+  sortOrder        Int       @default(0) @map("sort_order")
+  company          String
+  jobTitle         String    @map("job_title")
+  location         String?
+  startDate        DateTime? @map("start_date") @db.Date
+  endDate          DateTime? @map("end_date") @db.Date
+  isCurrent        Boolean   @default(false) @map("is_current")
+  description      String?
+  responsibilities String[]  @default([])
+  achievements     String[]  @default([])
+  technologies     String[]  @default([])
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sortOrder])
+  @@map("experiences")
+}
+
+model Education {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  /// User-defined display order (ascending).
+  sortOrder    Int       @default(0) @map("sort_order")
+  institution  String
+  degree       String?
+  fieldOfStudy String?   @map("field_of_study")
+  startDate    DateTime? @map("start_date") @db.Date
+  endDate      DateTime? @map("end_date") @db.Date
+  grade        String?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sortOrder])
+  @@map("educations")
+}
+
+model Project {
+  id               String   @id @default(uuid(7)) @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  /// User-defined display order (ascending).
+  sortOrder        Int      @default(0) @map("sort_order")
+  name             String
+  description      String?
+  role             String?
+  technologies     String[] @default([])
+  responsibilities String[] @default([])
+  achievements     String[] @default([])
+  url              String?
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sortOrder])
+  @@map("projects")
+}
+
+model Certification {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  /// User-defined display order (ascending).
+  sortOrder     Int       @default(0) @map("sort_order")
+  name          String
+  issuer        String?
+  issueDate     DateTime? @map("issue_date") @db.Date
+  expiryDate    DateTime? @map("expiry_date") @db.Date
+  credentialId  String?   @map("credential_id")
+  credentialUrl String?   @map("credential_url")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sortOrder])
+  @@map("certifications")
+}
+
+model ProfileLanguage {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  sortOrder      Int      @default(0) @map("sort_order")
+  name           String
+  normalizedName String   @map("normalized_name")
+  /// Free text as the user describes it, e.g. "Native", "Professional working".
+  proficiency    String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, normalizedName])
+  @@map("profile_languages")
+}
+
+/// Career achievements not tied to one job (awards, recognitions, notable results).
+model Achievement {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  sortOrder   Int       @default(0) @map("sort_order")
+  title       String
+  description String?
+  date        DateTime? @db.Date
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sortOrder])
+  @@map("achievements")
+}
+
+// ─── Resume library ────────────────────────────────────────────────────────────
+// Resume = logical identity ("Angular Developer Resume"); ResumeVersion = immutable
+// snapshot once ACTIVE. Future job matching scores ResumeVersions, and applications
+// will reference the exact version sent. See docs/DATABASE.md.
+
+enum ResumeStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum ResumeVersionStatus {
+  /// Being reviewed/edited; content may still change.
+  DRAFT
+  /// The resume's current version. Content is frozen.
+  ACTIVE
+  /// Superseded by a newer version. Retained, frozen, still retrievable.
+  ARCHIVED
+}
+
+enum ResumeVersionSource {
+  UPLOAD
+  MANUAL_EDIT
+  DUPLICATE
+  PROFILE
+}
+
+enum ParseStatus {
+  NOT_APPLICABLE
+  PENDING
+  PROCESSING
+  /// Extracted successfully; waiting for the user to review and confirm.
+  NEEDS_REVIEW
+  /// Extracted and confirmed by the user.
+  COMPLETED
+  FAILED
+}
+
+model Resume {
+  id               String       @id @default(uuid(7)) @db.Uuid
+  userId           String       @map("user_id") @db.Uuid
+  name             String
+  description      String?
+  /// User-chosen type, e.g. "Frontend", "Full Stack". Free text, not an enum.
+  category         String?
+  /// Free-form, user-controlled labels (e.g. "Angular", "Full Stack").
+  tags             String[]     @default([])
+  status           ResumeStatus @default(ACTIVE)
+  archivedAt       DateTime?    @map("archived_at") @db.Timestamptz(3)
+  currentVersionId String?      @unique @map("current_version_id") @db.Uuid
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  versions       ResumeVersion[] @relation("ResumeVersions")
+  currentVersion ResumeVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  defaultFor     DefaultResume?
+
+  /// Target of the composite FK from default_resumes (guarantees same owner).
+  @@unique([id, userId])
+  @@index([userId, status, updatedAt])
+  @@map("resumes")
+}
+
+/// At most one default resume per user (PK on user_id), and it must belong to that
+/// user (composite FK to resumes(id, user_id)). Deleting the resume clears the default.
+model DefaultResume {
+  userId    String   @id @map("user_id") @db.Uuid
+  resumeId  String   @unique @map("resume_id") @db.Uuid
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resume Resume @relation(fields: [resumeId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@unique([resumeId, userId])
+  @@map("default_resumes")
+}
+
+/// An uploaded original document. Never modified; may be referenced by several versions
+/// of the same resume (edits share the original). Bytes live in object storage.
+model ResumeFile {
+  id               String   @id @default(uuid(7)) @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  storageKey       String   @unique @map("storage_key")
+  originalFilename String   @map("original_filename")
+  mimeType         String   @map("mime_type")
+  sizeBytes        Int      @map("size_bytes")
+  sha256           String   @db.Char(64)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  versions ResumeVersion[]
+
+  @@index([userId])
+  @@map("resume_files")
+}
+
+model ResumeVersion {
+  id              String              @id @default(uuid(7)) @db.Uuid
+  resumeId        String              @map("resume_id") @db.Uuid
+  versionNumber   Int                 @map("version_number")
+  status          ResumeVersionStatus @default(DRAFT)
+  source          ResumeVersionSource
+  parentVersionId String?             @map("parent_version_id") @db.Uuid
+  notes           String?
+  fileId          String?             @map("file_id") @db.Uuid
+
+  // Extraction (suggestions, kept for provenance). JSONB because parser/AI output is
+  // versioned by parser/prompt version and may evolve independently of the schema.
+  parseStatus   ParseStatus @default(NOT_APPLICABLE) @map("parse_status")
+  parseError    String?     @map("parse_error")
+  parserVersion String?     @map("parser_version")
+  parsedAt      DateTime?   @map("parsed_at") @db.Timestamptz(3)
+  extractedText String?     @map("extracted_text")
+  parsedData    Json?       @map("parsed_data")
+  aiExtraction  Json?       @map("ai_extraction")
+
+  // Structured content of this version (normalised below). `hasContent` is true once
+  // content exists (copied, created from profile, or saved in review);
+  // `contentConfirmedAt` records the user's explicit confirmation.
+  hasContent          Boolean   @default(false) @map("has_content")
+  contentConfirmedAt  DateTime? @map("content_confirmed_at") @db.Timestamptz(3)
+  contactFullName     String?   @map("contact_full_name")
+  contactEmail        String?   @map("contact_email")
+  contactPhone        String?   @map("contact_phone")
+  contactLocation     String?   @map("contact_location")
+  contactLinkedinUrl  String?   @map("contact_linkedin_url")
+  contactGithubUrl    String?   @map("contact_github_url")
+  contactPortfolioUrl String?   @map("contact_portfolio_url")
+  headline            String?
+  summary             String?
+  yearsOfExperience   Decimal?  @map("years_of_experience") @db.Decimal(4, 1)
+  achievements        String[]  @default([])
+  languages           String[]  @default([])
+
+  activatedAt DateTime? @map("activated_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  resume             Resume                       @relation("ResumeVersions", fields: [resumeId], references: [id], onDelete: Cascade)
+  currentOf          Resume?                      @relation("CurrentVersion")
+  parentVersion      ResumeVersion?               @relation("VersionLineage", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  childVersions      ResumeVersion[]              @relation("VersionLineage")
+  file               ResumeFile?                  @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  skills             ResumeVersionSkill[]
+  experiences        ResumeVersionExperience[]
+  educations         ResumeVersionEducation[]
+  projects           ResumeVersionProject[]
+  certifications     ResumeVersionCertification[]
+  matchAnalyses      MatchAnalysis[]
+  recommendations    ResumeRecommendation[]
+  selectedForJobs    Job[]                        @relation("JobSelectedResume")
+  applications       Application[]                @relation("ApplicationResumeVersion")
+  recommendedFor     Application[]                @relation("ApplicationRecommendedVersion")
+  preparations       ApplicationPreparation[]     @relation("PreparationResumeVersion")
+  interviewSessions  InterviewSession[]           @relation("InterviewResumeVersion")
+  jobRecommendations JobRecommendation[]          @relation("JobRecommendationResumeVersion")
+
+  @@unique([resumeId, versionNumber])
+  @@index([parseStatus])
+  @@index([fileId])
+  @@map("resume_versions")
+}
+
+// Resume-specific content: each version can emphasise different experience/skills than
+// the career profile. Normalised so future matching can query skills/experience per version.
+
+model ResumeVersionSkill {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  versionId      String        @map("version_id") @db.Uuid
+  sortOrder      Int           @map("sort_order")
+  name           String
+  normalizedName String        @map("normalized_name")
+  category       SkillCategory
+
+  version ResumeVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, normalizedName])
+  @@index([normalizedName])
+  @@map("resume_version_skills")
+}
+
+model ResumeVersionExperience {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  versionId        String    @map("version_id") @db.Uuid
+  sortOrder        Int       @map("sort_order")
+  company          String?
+  jobTitle         String?   @map("job_title")
+  location         String?
+  startDate        DateTime? @map("start_date") @db.Date
+  endDate          DateTime? @map("end_date") @db.Date
+  isCurrent        Boolean   @default(false) @map("is_current")
+  responsibilities String[]  @default([])
+  achievements     String[]  @default([])
+  technologies     String[]  @default([])
+
+  version ResumeVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId, sortOrder])
+  @@map("resume_version_experiences")
+}
+
+model ResumeVersionEducation {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  versionId    String    @map("version_id") @db.Uuid
+  sortOrder    Int       @map("sort_order")
+  institution  String?
+  degree       String?
+  fieldOfStudy String?   @map("field_of_study")
+  startDate    DateTime? @map("start_date") @db.Date
+  endDate      DateTime? @map("end_date") @db.Date
+  grade        String?
+
+  version ResumeVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId, sortOrder])
+  @@map("resume_version_educations")
+}
+
+model ResumeVersionProject {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  versionId    String   @map("version_id") @db.Uuid
+  sortOrder    Int      @map("sort_order")
+  name         String?
+  description  String?
+  technologies String[] @default([])
+  highlights   String[] @default([])
+  url          String?
+
+  version ResumeVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId, sortOrder])
+  @@map("resume_version_projects")
+}
+
+model ResumeVersionCertification {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  versionId String    @map("version_id") @db.Uuid
+  sortOrder Int       @map("sort_order")
+  name      String
+  issuer    String?
+  date      DateTime? @db.Date
+
+  version ResumeVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId, sortOrder])
+  @@map("resume_version_certifications")
+}
+
+// ─── Jobs, analysis and resume matching (ADR-0014) ──────────────────────────
+
+enum JobStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum JobAnalysisStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum JobRequirementType {
+  SKILL
+  EXPERIENCE
+  EDUCATION
+  RESPONSIBILITY
+  OTHER
+}
+
+enum JobRequirementImportance {
+  REQUIRED
+  PREFERRED
+}
+
+enum JobRequirementOrigin {
+  EXPLICIT
+  INFERRED
+}
+
+enum JobRequirementDetector {
+  PARSER
+  AI
+}
+
+enum SeniorityLevel {
+  INTERN
+  JUNIOR
+  MID
+  SENIOR
+  LEAD
+  PRINCIPAL
+}
+
+enum MatchSubjectType {
+  RESUME_VERSION
+  PROFILE
+}
+
+enum JobOrigin {
+  MANUAL
+  DISCOVERED
+}
+
+model Job {
+  id                      String          @id @default(uuid(7)) @db.Uuid
+  userId                  String          @map("user_id") @db.Uuid
+  title                   String
+  companyName             String          @map("company_name")
+  description             String
+  /// Whitespace/bullet-normalised description used for analysis and duplicate detection.
+  normalizedDescription   String          @map("normalized_description")
+  /// sha256 of title + company + normalised description; one per user (duplicate submissions).
+  contentHash             String          @map("content_hash") @db.Char(64)
+  jobUrl                  String?         @map("job_url")
+  location                String?
+  employmentType          EmploymentType? @map("employment_type")
+  source                  String?
+  /// MANUAL: added by the user. DISCOVERED: created by a job alert (ADR-0018).
+  origin                  JobOrigin       @default(MANUAL)
+  /// True when the posting came from a development fixture source, never a real listing.
+  isSampleData            Boolean         @default(false) @map("is_sample_data")
+  /// Discovered jobs stay out of the Jobs list until the user saves them (or applies).
+  inLibrary               Boolean         @default(true) @map("in_library")
+  status                  JobStatus       @default(ACTIVE)
+  archivedAt              DateTime?       @map("archived_at") @db.Timestamptz(3)
+  /// The resume version the user chose for this job (may differ from the recommendation).
+  selectedResumeVersionId String?         @map("selected_resume_version_id") @db.Uuid
+  selectedAt              DateTime?       @map("selected_at") @db.Timestamptz(3)
+  /// Latest COMPLETED analysis run (what the UI shows); older runs stay as history.
+  currentAnalysisId       String?         @unique @map("current_analysis_id") @db.Uuid
+  createdAt               DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  selectedResumeVersion ResumeVersion?         @relation("JobSelectedResume", fields: [selectedResumeVersionId], references: [id], onDelete: SetNull)
+  currentAnalysis       JobAnalysis?           @relation("JobCurrentAnalysis", fields: [currentAnalysisId], references: [id], onDelete: SetNull)
+  analyses              JobAnalysis[]          @relation("JobAnalyses")
+  matches               MatchAnalysis[]
+  recommendations       ResumeRecommendation[]
+  applications          Application[]
+  discoveries           DiscoveredJob[]
+  jobRecommendations    JobRecommendation[]
+
+  @@unique([userId, contentHash])
+  @@unique([id, userId])
+  @@index([userId, status, createdAt])
+  @@map("jobs")
+}
+
+/// One analysis run of a job. Runs are kept (history); the newest completed run is shown.
+model JobAnalysis {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  jobId           String            @map("job_id") @db.Uuid
+  status          JobAnalysisStatus @default(PENDING)
+  error           String?
+  analyzerVersion String            @map("analyzer_version")
+  /// contentHash of the job when the run started; differs from the job's → outdated.
+  jobContentHash  String            @map("job_content_hash") @db.Char(64)
+  summary         String?
+  aiSummary       String?           @map("ai_summary")
+  seniority       SeniorityLevel?
+  seniorityOrigin String?           @map("seniority_origin")
+  employmentType  EmploymentType?   @map("employment_type")
+  keywords        String[]          @default([])
+  confidence      Decimal?          @db.Decimal(3, 2)
+  aiStatus        String            @default("DISABLED") @map("ai_status")
+  aiNote          String?           @map("ai_note")
+  aiProvider      String?           @map("ai_provider")
+  aiPromptVersion String?           @map("ai_prompt_version")
+  /// Validated, grounded AI output kept for traceability (never raw/unvalidated output).
+  aiExtraction    Json?             @map("ai_extraction")
+  /// Active resumes that could not be compared in this run, with the reason.
+  excludedResumes Json?             @map("excluded_resumes")
+  startedAt       DateTime?         @map("started_at") @db.Timestamptz(3)
+  completedAt     DateTime?         @map("completed_at") @db.Timestamptz(3)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  job            Job                   @relation("JobAnalyses", fields: [jobId], references: [id], onDelete: Cascade)
+  currentOf      Job?                  @relation("JobCurrentAnalysis")
+  requirements   JobRequirement[]
+  matches        MatchAnalysis[]
+  recommendation ResumeRecommendation?
+
+  @@index([jobId, createdAt])
+  @@index([status])
+  @@map("job_analyses")
+}
+
+model JobRequirement {
+  id             String                   @id @default(uuid(7)) @db.Uuid
+  analysisId     String                   @map("analysis_id") @db.Uuid
+  sortOrder      Int                      @map("sort_order")
+  type           JobRequirementType
+  name           String
+  normalizedName String                   @map("normalized_name")
+  importance     JobRequirementImportance
+  origin         JobRequirementOrigin
+  detectedBy     JobRequirementDetector   @map("detected_by")
+  evidence       String?
+  minYears       Int?                     @map("min_years")
+
+  analysis JobAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@unique([analysisId, type, normalizedName])
+  @@index([analysisId, sortOrder])
+  @@index([type, normalizedName])
+  @@map("job_requirements")
+}
+
+/// Deterministic comparison of one analysis run against one subject (a resume version or
+/// the career profile). Immutable once written: it keeps pointing at the exact version.
+model MatchAnalysis {
+  id                  String           @id @default(uuid(7)) @db.Uuid
+  analysisId          String           @map("analysis_id") @db.Uuid
+  jobId               String           @map("job_id") @db.Uuid
+  userId              String           @map("user_id") @db.Uuid
+  subjectType         MatchSubjectType @map("subject_type")
+  /// "profile" or the resume version id: one match per subject per run.
+  subjectKey          String           @map("subject_key")
+  resumeVersionId     String?          @map("resume_version_id") @db.Uuid
+  resumeId            String?          @map("resume_id") @db.Uuid
+  resumeName          String?          @map("resume_name")
+  versionNumber       Int?             @map("version_number")
+  isDefaultResume     Boolean          @default(false) @map("is_default_resume")
+  rank                Int?
+  overallScore        Int              @map("overall_score")
+  skillScore          Int?             @map("skill_score")
+  experienceScore     Int?             @map("experience_score")
+  responsibilityScore Int?             @map("responsibility_score")
+  projectScore        Int?             @map("project_score")
+  educationScore      Int?             @map("education_score")
+  keywordScore        Int?             @map("keyword_score")
+  strengths           String[]         @default([])
+  gaps                String[]         @default([])
+  evidence            Json
+  scoringVersion      String           @map("scoring_version")
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  analysis       JobAnalysis           @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  job            Job                   @relation(fields: [jobId, userId], references: [id, userId], onDelete: Cascade)
+  /// SetNull: deleting a whole resume keeps the match (with its name/version snapshot).
+  resumeVersion  ResumeVersion?        @relation(fields: [resumeVersionId], references: [id], onDelete: SetNull)
+  recommendation ResumeRecommendation?
+  applications   Application[]
+
+  @@unique([analysisId, subjectKey])
+  @@index([jobId, userId])
+  @@index([resumeVersionId])
+  @@map("match_analyses")
+}
+
+model ResumeRecommendation {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  analysisId      String   @unique @map("analysis_id") @db.Uuid
+  jobId           String   @map("job_id") @db.Uuid
+  matchAnalysisId String   @unique @map("match_analysis_id") @db.Uuid
+  resumeVersionId String?  @map("resume_version_id") @db.Uuid
+  score           Int
+  reasons         String[] @default([])
+  gaps            String[] @default([])
+  generatedAt     DateTime @default(now()) @map("generated_at") @db.Timestamptz(3)
+
+  analysis      JobAnalysis    @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  job           Job            @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  matchAnalysis MatchAnalysis  @relation(fields: [matchAnalysisId], references: [id], onDelete: Cascade)
+  resumeVersion ResumeVersion? @relation(fields: [resumeVersionId], references: [id], onDelete: SetNull)
+
+  @@index([jobId])
+  @@map("resume_recommendations")
+}
+
+// ─── Application tracking (ADR-0015) ────────────────────────────────────────
+
+enum ApplicationStatus {
+  SAVED
+  PREPARING
+  APPLIED
+  RECRUITER_SCREEN
+  ASSESSMENT
+  INTERVIEW
+  FINAL_INTERVIEW
+  OFFER
+  REJECTED
+  WITHDRAWN
+  NO_RESPONSE
+}
+
+enum ApplicationDocumentType {
+  COVER_LETTER
+  TAILORED_RESUME
+  PORTFOLIO
+  OTHER
+}
+
+/// A job application the user tracks. The product never submits anything itself.
+model Application {
+  id                         String            @id @default(uuid(7)) @db.Uuid
+  userId                     String            @map("user_id") @db.Uuid
+  jobId                      String            @map("job_id") @db.Uuid
+  /// The exact resume version used. Set at creation and never changed. RESTRICT: a version
+  /// used by an application can't be deleted (its resume can only be archived).
+  resumeVersionId            String            @map("resume_version_id") @db.Uuid
+  status                     ApplicationStatus @default(SAVED)
+  appliedAt                  DateTime?         @map("applied_at") @db.Date
+  source                     String?
+  applicationUrl             String?           @map("application_url")
+  rejectionReason            String?           @map("rejection_reason")
+  /// Snapshot of the job's AI recommendation and of the used version's match when created.
+  recommendedResumeVersionId String?           @map("recommended_resume_version_id") @db.Uuid
+  recommendedScore           Int?              @map("recommended_score")
+  matchAnalysisId            String?           @map("match_analysis_id") @db.Uuid
+  matchScore                 Int?              @map("match_score")
+  archivedAt                 DateTime?         @map("archived_at") @db.Timestamptz(3)
+  createdAt                  DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user                     User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// RESTRICT: a job with applications can be archived but not deleted.
+  job                      Job                        @relation(fields: [jobId, userId], references: [id, userId], onDelete: Restrict)
+  resumeVersion            ResumeVersion              @relation("ApplicationResumeVersion", fields: [resumeVersionId], references: [id], onDelete: Restrict)
+  recommendedResumeVersion ResumeVersion?             @relation("ApplicationRecommendedVersion", fields: [recommendedResumeVersionId], references: [id], onDelete: SetNull)
+  matchAnalysis            MatchAnalysis?             @relation(fields: [matchAnalysisId], references: [id], onDelete: SetNull)
+  statusHistory            ApplicationStatusHistory[]
+  notes                    ApplicationNote[]
+  documents                ApplicationDocument[]
+  preparation              ApplicationPreparation?
+  questions                ApplicationQuestion[]
+  interviewSessions        InterviewSession[]
+
+  @@index([userId, archivedAt, updatedAt])
+  @@index([jobId])
+  @@index([resumeVersionId])
+  @@map("applications")
+}
+
+/// Append-only: every status change adds a row; rows are never updated.
+model ApplicationStatusHistory {
+  id            String             @id @default(uuid(7)) @db.Uuid
+  applicationId String             @map("application_id") @db.Uuid
+  fromStatus    ApplicationStatus? @map("from_status")
+  toStatus      ApplicationStatus  @map("to_status")
+  changedAt     DateTime           @default(now()) @map("changed_at") @db.Timestamptz(3)
+  note          String?
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, changedAt])
+  @@index([toStatus, changedAt])
+  @@map("application_status_history")
+}
+
+model ApplicationNote {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  applicationId String   @map("application_id") @db.Uuid
+  body          String
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, createdAt])
+  @@map("application_notes")
+}
+
+/// Files attached to one application (cover letter, tailored resume…). Bytes live in object
+/// storage; original resume files are never modified.
+model ApplicationDocument {
+  id               String                  @id @default(uuid(7)) @db.Uuid
+  applicationId    String                  @map("application_id") @db.Uuid
+  type             ApplicationDocumentType
+  name             String
+  storageKey       String                  @unique @map("storage_key")
+  originalFilename String                  @map("original_filename")
+  mimeType         String                  @map("mime_type")
+  sizeBytes        Int                     @map("size_bytes")
+  sha256           String                  @db.Char(64)
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  application        Application         @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  coverLetterVersion CoverLetterVersion?
+
+  @@index([applicationId, createdAt])
+  @@map("application_documents")
+}
+
+// ─── AI application preparation (ADR-0016) ──────────────────────────────────
+
+enum PreparationStatus {
+  NOT_STARTED
+  READY
+  REVIEWED
+  APPROVED
+}
+
+enum GenerationSource {
+  AI
+  RULES
+  TEMPLATE
+  MANUAL
+}
+
+enum SuggestionKind {
+  REWRITE
+  REORDER
+  EMPHASIZE
+  GAP
+}
+
+enum SuggestionSection {
+  SUMMARY
+  EXPERIENCE
+  PROJECT
+  SKILLS
+  EDUCATION
+  CERTIFICATIONS
+}
+
+enum SuggestionStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EDITED
+}
+
+enum CoverLetterStatus {
+  GENERATED
+  EDITED
+  APPROVED
+}
+
+enum QuestionStatus {
+  PENDING
+  GENERATED
+  EDITED
+  APPROVED
+}
+
+enum QuestionType {
+  MOTIVATION
+  EXPERIENCE
+  SALARY
+  NOTICE_PERIOD
+  WORK_AUTHORIZATION
+  LOCATION
+  OTHER
+}
+
+enum AiUsageStatus {
+  SUCCEEDED
+  INVALID
+  FAILED
+}
+
+/// One per application: AI-assisted materials prepared for it from the application's exact
+/// resume version. Original resume content is never modified.
+model ApplicationPreparation {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  applicationId   String            @unique @map("application_id") @db.Uuid
+  userId          String            @map("user_id") @db.Uuid
+  jobId           String            @map("job_id") @db.Uuid
+  /// Always the application's resume version (lineage: version → preparation → application).
+  resumeVersionId String            @map("resume_version_id") @db.Uuid
+  status          PreparationStatus @default(NOT_STARTED)
+  approvedAt      DateTime?         @map("approved_at") @db.Timestamptz(3)
+  /// Set while a generation runs, so concurrent duplicate requests are refused.
+  busyOperation   String?           @map("busy_operation")
+  busySince       DateTime?         @map("busy_since") @db.Timestamptz(3)
+  suggestionsNote String?           @map("suggestions_note")
+  suggestionsAt   DateTime?         @map("suggestions_at") @db.Timestamptz(3)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  application   Application          @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resumeVersion ResumeVersion        @relation("PreparationResumeVersion", fields: [resumeVersionId], references: [id], onDelete: Restrict)
+  suggestions   ResumeSuggestion[]
+  coverLetters  CoverLetterVersion[]
+
+  @@index([userId])
+  @@map("application_preparations")
+}
+
+model ResumeSuggestion {
+  id             String            @id @default(uuid(7)) @db.Uuid
+  preparationId  String            @map("preparation_id") @db.Uuid
+  sortOrder      Int               @map("sort_order")
+  kind           SuggestionKind
+  section        SuggestionSection
+  originalText   String?           @map("original_text")
+  suggestedText  String?           @map("suggested_text")
+  userText       String?           @map("user_text")
+  reason         String
+  jobRequirement String?           @map("job_requirement")
+  confidence     Decimal?          @db.Decimal(3, 2)
+  source         GenerationSource
+  status         SuggestionStatus  @default(PENDING)
+  /// Machine-readable target for REORDER (e.g. experience index), never shown to users.
+  target         Json?
+  decidedAt      DateTime?         @map("decided_at") @db.Timestamptz(3)
+  /// Undecided suggestions are superseded (kept, hidden) when suggestions are regenerated.
+  supersededAt   DateTime?         @map("superseded_at") @db.Timestamptz(3)
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  preparation ApplicationPreparation @relation(fields: [preparationId], references: [id], onDelete: Cascade)
+
+  @@index([preparationId, supersededAt, sortOrder])
+  @@map("resume_suggestions")
+}
+
+/// Versioned cover letters: regenerating creates a new version; earlier ones are kept.
+model CoverLetterVersion {
+  id            String            @id @default(uuid(7)) @db.Uuid
+  preparationId String            @map("preparation_id") @db.Uuid
+  versionNumber Int               @map("version_number")
+  source        GenerationSource
+  generatedText String            @map("generated_text")
+  text          String
+  status        CoverLetterStatus @default(GENERATED)
+  note          String?
+  notClaimed    String[]          @default([]) @map("not_claimed")
+  approvedAt    DateTime?         @map("approved_at") @db.Timestamptz(3)
+  /// The DOCX application document created when this version was approved.
+  documentId    String?           @unique @map("document_id") @db.Uuid
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  preparation ApplicationPreparation @relation(fields: [preparationId], references: [id], onDelete: Cascade)
+  document    ApplicationDocument?   @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@unique([preparationId, versionNumber])
+  @@map("cover_letter_versions")
+}
+
+model ApplicationQuestion {
+  id                      String            @id @default(uuid(7)) @db.Uuid
+  applicationId           String            @map("application_id") @db.Uuid
+  question                String
+  questionType            QuestionType      @map("question_type")
+  maxWords                Int?              @map("max_words")
+  maxCharacters           Int?              @map("max_characters")
+  /// The AI/rules suggestion — kept separate from the user's final answer.
+  suggestedAnswer         String?           @map("suggested_answer")
+  answerSource            GenerationSource? @map("answer_source")
+  insufficientInformation Boolean           @default(false) @map("insufficient_information")
+  missingInformation      String[]          @default([]) @map("missing_information")
+  assumptions             String[]          @default([])
+  note                    String?
+  userAnswer              String?           @map("user_answer")
+  status                  QuestionStatus    @default(PENDING)
+  generatedAt             DateTime?         @map("generated_at") @db.Timestamptz(3)
+  approvedAt              DateTime?         @map("approved_at") @db.Timestamptz(3)
+  createdAt               DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, createdAt])
+  @@map("application_questions")
+}
+
+/// AI usage records for future metering/cost reporting. No content is stored.
+model AiUsage {
+  id            String        @id @default(uuid(7)) @db.Uuid
+  userId        String        @map("user_id") @db.Uuid
+  applicationId String?       @map("application_id") @db.Uuid
+  operation     String
+  provider      String
+  model         String?
+  status        AiUsageStatus
+  attempts      Int           @default(1)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([operation, createdAt])
+  @@map("ai_usage")
+}
+
+// ─── Interview preparation & mock interviews (ADR-0017) ─────────────────────
+
+enum InterviewSessionType {
+  PREPARATION
+  MOCK_INTERVIEW
+  TECHNICAL
+  BEHAVIORAL
+  HR
+}
+
+enum InterviewStatus {
+  CREATED
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+}
+
+enum InterviewFocus {
+  MIXED
+  TECHNICAL
+  BEHAVIORAL
+  HR
+}
+
+enum InterviewDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum InterviewQuestionCategory {
+  INTRODUCTION
+  RESUME
+  TECHNICAL
+  PROJECT
+  BEHAVIORAL
+  SITUATIONAL
+  COMPANY
+  ROLE_SPECIFIC
+  HR
+}
+
+/// A practice or mock interview for one application. Keeps the exact application, job and
+/// resume version it was created with.
+model InterviewSession {
+  id              String               @id @default(uuid(7)) @db.Uuid
+  userId          String               @map("user_id") @db.Uuid
+  applicationId   String               @map("application_id") @db.Uuid
+  jobId           String               @map("job_id") @db.Uuid
+  resumeVersionId String               @map("resume_version_id") @db.Uuid
+  type            InterviewSessionType
+  focus           InterviewFocus
+  difficulty      InterviewDifficulty
+  questionCount   Int                  @map("question_count")
+  status          InterviewStatus      @default(CREATED)
+  /// Next question to answer in a mock interview.
+  currentIndex    Int                  @default(0) @map("current_index")
+  questionsSource GenerationSource?    @map("questions_source")
+  questionsNote   String?              @map("questions_note")
+  overallScore    Int?                 @map("overall_score")
+  /// The final report (derived from stored evaluations), kept as generated.
+  report          Json?
+  busyOperation   String?              @map("busy_operation")
+  busySince       DateTime?            @map("busy_since") @db.Timestamptz(3)
+  startedAt       DateTime?            @map("started_at") @db.Timestamptz(3)
+  completedAt     DateTime?            @map("completed_at") @db.Timestamptz(3)
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  application   Application         @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  resumeVersion ResumeVersion       @relation("InterviewResumeVersion", fields: [resumeVersionId], references: [id], onDelete: Restrict)
+  questions     InterviewQuestion[]
+
+  @@index([userId, createdAt])
+  @@index([applicationId, createdAt])
+  @@map("interview_sessions")
+}
+
+model InterviewQuestion {
+  id             String                    @id @default(uuid(7)) @db.Uuid
+  sessionId      String                    @map("session_id") @db.Uuid
+  order          Int
+  question       String
+  category       InterviewQuestionCategory
+  difficulty     InterviewDifficulty
+  expectedTopics String[]                  @default([]) @map("expected_topics")
+  rationale      String?
+  source         GenerationSource
+  createdAt      DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  session InterviewSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  answers InterviewAnswer[]
+
+  @@unique([sessionId, order])
+  @@map("interview_questions")
+}
+
+/// The user's answer exactly as submitted. Never updated: answering again adds an attempt.
+model InterviewAnswer {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  questionId String   @map("question_id") @db.Uuid
+  attempt    Int
+  answer     String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  question   InterviewQuestion    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  evaluation InterviewEvaluation?
+
+  @@unique([questionId, attempt])
+  @@map("interview_answers")
+}
+
+/// Practice feedback on one answer, stored separately from the answer.
+model InterviewEvaluation {
+  id           String           @id @default(uuid(7)) @db.Uuid
+  answerId     String           @unique @map("answer_id") @db.Uuid
+  source       GenerationSource
+  overallScore Decimal          @map("overall_score") @db.Decimal(3, 1)
+  dimensions   Json
+  strengths    String[]         @default([])
+  improvements String[]         @default([])
+  star         Json?
+  technical    Json?
+  feedback     String?
+  note         String?
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  answer InterviewAnswer @relation(fields: [answerId], references: [id], onDelete: Cascade)
+
+  @@map("interview_evaluations")
+}
+
+// ─── Job discovery and alerts (ADR-0018) ────────────────────────────────────
+// Jobs stay per user: a discovered posting that passes screening becomes the user's own
+// Job (origin DISCOVERED). JobSource is the only global table and holds no user data.
+
+enum RemotePreference {
+  ANY
+  REMOTE
+  HYBRID
+  ONSITE
+}
+
+enum AlertScheduleType {
+  DAILY
+  WEEKLY
+  CUSTOM
+}
+
+/// Which resume decides the match score: the best of all active resumes, or the default one.
+enum AlertResumeMode {
+  BEST_MATCH
+  DEFAULT_RESUME
+}
+
+enum JobSearchTrigger {
+  SCHEDULED
+  MANUAL
+}
+
+enum JobSearchRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  PARTIAL
+}
+
+enum JobSourceKind {
+  DEVELOPMENT
+  API
+  FEED
+}
+
+enum DiscoveryOutcome {
+  RECOMMENDED
+  BELOW_THRESHOLD
+  DUPLICATE
+  ANALYSIS_FAILED
+}
+
+enum JobRecommendationStatus {
+  NEW
+  VIEWED
+  DISMISSED
+  SAVED
+  APPLIED
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  PUSH
+}
+
+enum NotificationType {
+  NEW_RECOMMENDATIONS
+  ALERT_RUN_FAILED
+}
+
+model JobSearchAlert {
+  id                String            @id @default(uuid(7)) @db.Uuid
+  userId            String            @map("user_id") @db.Uuid
+  name              String
+  keywords          String[]          @default([])
+  locations         String[]          @default([])
+  remotePreference  RemotePreference  @default(ANY) @map("remote_preference")
+  employmentTypes   EmploymentType[]  @default([]) @map("employment_types")
+  experienceLevel   SeniorityLevel?   @map("experience_level")
+  minimumMatchScore Int               @default(70) @map("minimum_match_score")
+  resumeMode        AlertResumeMode   @default(BEST_MATCH) @map("selected_resume_mode")
+  isActive          Boolean           @default(true) @map("is_active")
+  scheduleType      AlertScheduleType @default(DAILY) @map("schedule_type")
+  /// Local time of day ("HH:mm") in `timezone`.
+  scheduleTime      String            @default("08:00") @map("schedule_time")
+  /// Weekdays (0 = Sunday) for WEEKLY (one day) and CUSTOM (several); empty for DAILY.
+  scheduleDays      Int[]             @default([]) @map("schedule_days")
+  /// IANA time zone the schedule is interpreted in (the user's browser zone by default).
+  timezone          String            @default("UTC")
+  lastRunAt         DateTime?         @map("last_run_at") @db.Timestamptz(3)
+  /// Next scheduled run; null while the alert is paused.
+  nextRunAt         DateTime?         @map("next_run_at") @db.Timestamptz(3)
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  runs            JobSearchRun[]
+  discoveries     DiscoveredJob[]
+  recommendations JobRecommendation[]
+
+  @@unique([id, userId])
+  @@index([userId, createdAt])
+  @@index([isActive, nextRunAt])
+  @@map("job_search_alerts")
+}
+
+/// A configured job source. Never holds credentials: provider secrets live only in
+/// environment variables read by the adapter.
+model JobSource {
+  id            String        @id @default(uuid(7)) @db.Uuid
+  key           String        @unique
+  name          String
+  kind          JobSourceKind
+  /// Development fixture source: its postings are samples, never real listings.
+  isDevelopment Boolean       @map("is_development")
+  isEnabled     Boolean       @map("is_enabled")
+  description   String?
+  lastSuccessAt DateTime?     @map("last_success_at") @db.Timestamptz(3)
+  lastFailureAt DateTime?     @map("last_failure_at") @db.Timestamptz(3)
+  lastError     String?       @map("last_error")
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  discoveries DiscoveredJob[]
+
+  @@map("job_sources")
+}
+
+/// A posting a user's alert found at a source (internal record, kept even when it isn't
+/// recommended). One per user, source and external id: runs never re-create it.
+model DiscoveredJob {
+  id             String           @id @default(uuid(7)) @db.Uuid
+  userId         String           @map("user_id") @db.Uuid
+  sourceId       String           @map("source_id") @db.Uuid
+  externalId     String           @map("external_id")
+  /// First alert that found it.
+  alertId        String?          @map("alert_id") @db.Uuid
+  /// The user's job created for (or matched to) this posting; null when screened out or deleted.
+  jobId          String?          @map("job_id") @db.Uuid
+  sourceUrl      String?          @map("source_url")
+  canonicalUrl   String?          @map("canonical_url")
+  /// company | normalised title | location, for cross-source duplicate detection.
+  dedupKey       String           @map("dedup_key")
+  title          String
+  companyName    String           @map("company_name")
+  location       String?
+  workMode       WorkMode?        @map("work_mode")
+  postedAt       DateTime?        @map("posted_at") @db.Timestamptz(3)
+  outcome        DiscoveryOutcome
+  /// Best match score at screening time.
+  screeningScore Int?             @map("screening_score")
+  discoveredAt   DateTime         @default(now()) @map("discovered_at") @db.Timestamptz(3)
+  lastSeenAt     DateTime         @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source          JobSource           @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  alert           JobSearchAlert?     @relation(fields: [alertId], references: [id], onDelete: SetNull)
+  job             Job?                @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  recommendations JobRecommendation[]
+
+  @@unique([userId, sourceId, externalId])
+  @@index([userId, canonicalUrl])
+  @@index([userId, dedupKey])
+  @@index([jobId])
+  @@map("discovered_jobs")
+}
+
+model JobSearchRun {
+  id                     String             @id @default(uuid(7)) @db.Uuid
+  alertId                String             @map("alert_id") @db.Uuid
+  userId                 String             @map("user_id") @db.Uuid
+  trigger                JobSearchTrigger
+  status                 JobSearchRunStatus @default(RUNNING)
+  /// Postings returned by sources that matched the alert's criteria.
+  jobsFound              Int                @default(0) @map("jobs_found")
+  /// New jobs added for the user (passed the threshold).
+  jobsCreated            Int                @default(0) @map("jobs_created")
+  /// Already known, duplicates, or below the threshold.
+  jobsSkipped            Int                @default(0) @map("jobs_skipped")
+  belowThreshold         Int                @default(0) @map("below_threshold")
+  recommendationsCreated Int                @default(0) @map("recommendations_created")
+  /// Per-source outcome: [{ sourceKey, status, found, error }]. Errors are safe messages only.
+  sourceResults          Json?              @map("source_results")
+  errorMessage           String?            @map("error_message")
+  note                   String?
+  startedAt              DateTime           @default(now()) @map("started_at") @db.Timestamptz(3)
+  completedAt            DateTime?          @map("completed_at") @db.Timestamptz(3)
+
+  alert           JobSearchAlert      @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recommendations JobRecommendation[]
+
+  @@index([alertId, startedAt])
+  @@index([status])
+  @@map("job_search_runs")
+}
+
+/// A job recommended to one user. One per user and job: re-runs never duplicate it, and a
+/// dismissed recommendation stays dismissed.
+model JobRecommendation {
+  id                         String                  @id @default(uuid(7)) @db.Uuid
+  userId                     String                  @map("user_id") @db.Uuid
+  jobId                      String                  @map("job_id") @db.Uuid
+  alertId                    String?                 @map("alert_id") @db.Uuid
+  runId                      String?                 @map("run_id") @db.Uuid
+  discoveredJobId            String?                 @map("discovered_job_id") @db.Uuid
+  /// Compatibility score of the recommended resume version (same engine as job analysis).
+  matchScore                 Int                     @map("match_score")
+  recommendedResumeVersionId String?                 @map("recommended_resume_version_id") @db.Uuid
+  /// Snapshot so the recommendation stays readable if the resume is deleted.
+  resumeId                   String?                 @map("resume_id") @db.Uuid
+  resumeName                 String?                 @map("resume_name")
+  versionNumber              Int?                    @map("version_number")
+  /// Ranking score 0–100 (match, resume fit, required skills, freshness, criteria); higher first.
+  rank                       Int
+  /// One-sentence explanation; `reasons` holds the supporting points.
+  reason                     String
+  reasons                    String[]                @default([])
+  gaps                       String[]                @default([])
+  requiredSkillsMatched      String[]                @default([]) @map("required_skills_matched")
+  requiredSkillsMissing      String[]                @default([]) @map("required_skills_missing")
+  status                     JobRecommendationStatus @default(NEW)
+  viewedAt                   DateTime?               @map("viewed_at") @db.Timestamptz(3)
+  savedAt                    DateTime?               @map("saved_at") @db.Timestamptz(3)
+  dismissedAt                DateTime?               @map("dismissed_at") @db.Timestamptz(3)
+  appliedAt                  DateTime?               @map("applied_at") @db.Timestamptz(3)
+  createdAt                  DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user                     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Composite key: the job must belong to the same user.
+  job                      Job             @relation(fields: [jobId, userId], references: [id, userId], onDelete: Cascade)
+  alert                    JobSearchAlert? @relation(fields: [alertId], references: [id], onDelete: SetNull)
+  run                      JobSearchRun?   @relation(fields: [runId], references: [id], onDelete: SetNull)
+  discoveredJob            DiscoveredJob?  @relation(fields: [discoveredJobId], references: [id], onDelete: SetNull)
+  recommendedResumeVersion ResumeVersion?  @relation("JobRecommendationResumeVersion", fields: [recommendedResumeVersionId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, jobId])
+  @@index([userId, status, rank])
+  @@index([alertId])
+  @@map("job_recommendations")
+}
+
+/// In-app notifications (EMAIL/PUSH reserved for later channels). `dedupKey` makes
+/// creation idempotent: one notification per run, never one per job.
+model Notification {
+  id        String              @id @default(uuid(7)) @db.Uuid
+  userId    String              @map("user_id") @db.Uuid
+  channel   NotificationChannel @default(IN_APP)
+  type      NotificationType
+  title     String
+  body      String
+  /// In-app path to open (e.g. /recommendations?alertId=…).
+  link      String?
+  /// Ids and counts only.
+  data      Json?
+  dedupKey  String              @map("dedup_key")
+  readAt    DateTime?           @map("read_at") @db.Timestamptz(3)
+  createdAt DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupKey])
+  @@index([userId, readAt, createdAt])
+  @@map("notifications")
+}

@@ -1,0 +1,43 @@
+{
+  "name": "ai-job-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI Job Application Assistant \u2014 modular monolith (NestJS API + Angular web).",
+  "engines": {
+    "node": ">=22.12.0 <23 || >=24.0.0",
+    "npm": ">=10"
+  },
+  "workspaces": [
+    "packages/shared",
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "build:shared": "npm run build -w @job-assist/shared",
+    "build": "npm run build:shared && npm run build -w @job-assist/api && npm run build -w @job-assist/web",
+    "dev:api": "npm run start:dev -w @job-assist/api",
+    "dev:web": "npm run start -w @job-assist/web",
+    "lint": "npm run lint -w @job-assist/api && npm run lint -w @job-assist/web",
+    "test": "npm run test -w @job-assist/api && npm run test -w @job-assist/web",
+    "test:e2e": "npm run test:e2e -w @job-assist/api",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:up": "docker compose up -d postgres object-storage keycloak-db keycloak",
+    "keycloak:logs": "docker compose logs -f keycloak",
+    "db:down": "docker compose down",
+    "db:migrate": "npm run db:migrate -w @job-assist/api",
+    "db:migrate:deploy": "npm run db:migrate:deploy -w @job-assist/api",
+    "postinstall": "npm run build:shared",
+    "test:e2e:web": "npm run test:e2e -w @job-assist/web"
+  },
+  "devDependencies": {
+    "prettier": "^3.8.1"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "@prisma/engines@7.10.0": true,
+    "@swc/core@1.16.13": true,
+    "prisma@7.10.0": true
+  }
+}

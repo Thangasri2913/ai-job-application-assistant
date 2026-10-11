@@ -1,0 +1,66 @@
+{
+  "realm": "ai-job-assistant",
+  "displayName": "JobAssist",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "rememberMe": true,
+  "verifyEmail": false,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "failureFactor": 10,
+  "permanentLockout": false,
+  "passwordPolicy": "length(12) and notUsername and notEmail",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "roles": {
+    "realm": [{ "name": "user", "description": "Signed-up JobAssist user" }]
+  },
+  "defaultRole": {
+    "name": "default-roles-ai-job-assistant",
+    "composite": true,
+    "composites": { "realm": ["user", "offline_access", "uma_authorization"] }
+  },
+  "clients": [
+    {
+      "clientId": "ai-job-assistant-web",
+      "name": "JobAssist web app",
+      "description": "Browser SPA. Public client: Authorization Code Flow with PKCE (S256). No client secret.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "redirectUris": ["http://localhost:4200/auth/callback"],
+      "webOrigins": ["http://localhost:4200"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:4200/login"
+      },
+      "protocolMappers": [
+        {
+          "name": "api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "ai-job-assistant-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ],
+      "defaultClientScopes": ["web-origins", "acr", "basic", "profile", "roles", "email"],
+      "optionalClientScopes": ["offline_access"]
+    }
+  ]
+}

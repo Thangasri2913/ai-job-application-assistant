@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out-tsc/
+.angular/
+coverage/
+*.tsbuildinfo
+
+# Prisma generated client
+apps/api/src/generated/
+
+# Environment — never commit real secrets
+.env
+.env.*
+!.env.example
+!**/.env.test.example
+
+# Logs & OS
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Playwright
+test-results/
+playwright-report/
