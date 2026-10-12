@@ -14,7 +14,7 @@ async function bootstrap(): Promise<void> {
 
   const port = app.get<AppConfigService>(ConfigService).get('API_PORT', { infer: true });
   await app.listen(port);
-  app.get(Logger).log(`API listening on http://localhost:${port}/api/v1`, 'Bootstrap');
+  app.get(Logger).log(`API listening on port ${port} (/api/v1)`, 'Bootstrap');
 }
 
 await bootstrap();

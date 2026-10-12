@@ -1,0 +1,75 @@
+# Render Blueprint for the portfolio/testing deployment (see docs/DEPLOYMENT.md).
+# Nothing here is a secret: every secret is `sync: false` and entered in the Render dashboard.
+# There is no Redis and no separate worker — background work runs inside the API.
+services:
+  - type: web
+    name: job-assist-api
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: CORS_ORIGINS
+        sync: false # https://APP_URL
+      - key: TRUST_PROXY_HOPS
+        value: '1'
+      - key: SWAGGER_ENABLED
+        value: 'false'
+      - key: DATABASE_URL
+        sync: false # Neon pooled connection string
+      - key: DIRECT_DATABASE_URL
+        sync: false # Neon direct connection string (migrations)
+      - key: KEYCLOAK_ISSUER_URL
+        sync: false # https://AUTH_URL/realms/ai-job-assistant
+      - key: KEYCLOAK_CLIENT_ID
+        value: ai-job-assistant-web
+      - key: KEYCLOAK_AUDIENCE
+        value: ai-job-assistant-api
+      - key: S3_ENDPOINT
+        sync: false # https://ACCOUNT_ID.r2.cloudflarestorage.com
+      - key: S3_REGION
+        value: auto
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_FORCE_PATH_STYLE
+        value: 'true'
+      - key: S3_AUTO_CREATE_BUCKET
+        value: 'false'
+      - key: AI_PROVIDER
+        value: none
+      - key: JOB_ALERT_SCHEDULER_ENABLED
+        value: 'true'
+
+  - type: web
+    name: job-assist-keycloak
+    runtime: docker
+    dockerfilePath: ./infrastructure/keycloak-prod/Dockerfile
+    dockerContext: ./infrastructure/keycloak-prod
+    plan: starter # Keycloak usually needs more memory than the free plan provides
+    healthCheckPath: /realms/ai-job-assistant/.well-known/openid-configuration
+    envVars:
+      - key: KC_DB_URL
+        sync: false # jdbc:postgresql://HOST/keycloak?sslmode=require
+      - key: KC_DB_USERNAME
+        sync: false
+      - key: KC_DB_PASSWORD
+        sync: false
+      - key: KC_HOSTNAME
+        sync: false # https://AUTH_URL
+      - key: KC_HTTP_ENABLED
+        value: 'true'
+      - key: KC_PROXY_HEADERS
+        value: xforwarded
+      - key: KC_HTTP_PORT
+        value: '10000'
+      - key: KC_BOOTSTRAP_ADMIN_USERNAME
+        sync: false
+      - key: KC_BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+      - key: APP_URL
+        sync: false # https://APP_URL — used when the realm is first imported

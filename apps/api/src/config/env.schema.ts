@@ -80,8 +80,30 @@ export const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
+/** Settings that are acceptable locally but unsafe in a deployed (production) environment. */
+const productionSchema = envSchema.superRefine((env, ctx) => {
+  if (env.NODE_ENV !== 'production') return;
+  if (env.CORS_ORIGINS.includes('*')) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['CORS_ORIGINS'],
+      message: 'must list exact origins in production ("*" is not allowed)',
+    });
+  }
+  if (env.AI_PROVIDER === 'mock') {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['AI_PROVIDER'],
+      message: 'the mock provider returns test fixtures and is not allowed in production',
+    });
+  }
+});
+
 export function validateEnv(raw: Record<string, unknown>): Env {
-  const result = envSchema.safeParse(raw);
+  // Hosts such as Render provide the listening port as PORT; API_PORT wins when both are set.
+  const withPort =
+    raw.API_PORT === undefined && raw.PORT !== undefined ? { ...raw, API_PORT: raw.PORT } : raw;
+  const result = productionSchema.safeParse(withPort);
   if (!result.success) {
     // Only variable names and messages — never values, which may be secrets.
     const problems = result.error.issues
