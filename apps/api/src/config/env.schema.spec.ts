@@ -55,4 +55,19 @@ describe('validateEnv', () => {
     const { DATABASE_URL: _omitted, ...withoutDatabaseUrl } = valid;
     expect(() => validateEnv(withoutDatabaseUrl)).toThrow(/DATABASE_URL/);
   });
+
+  it('uses PORT when API_PORT is not set (e.g. Render)', () => {
+    expect(validateEnv({ ...valid, PORT: '10000' }).API_PORT).toBe(10000);
+    expect(validateEnv({ ...valid, PORT: '10000', API_PORT: '4000' }).API_PORT).toBe(4000);
+  });
+
+  it('rejects unsafe settings in production only', () => {
+    const production = { ...valid, NODE_ENV: 'production' };
+    expect(() => validateEnv({ ...production, CORS_ORIGINS: '*' })).toThrow(/CORS_ORIGINS/);
+    expect(() => validateEnv({ ...production, AI_PROVIDER: 'mock' })).toThrow(/AI_PROVIDER/);
+    expect(
+      validateEnv({ ...production, CORS_ORIGINS: 'https://app.example' }).CORS_ORIGINS,
+    ).toEqual(['https://app.example']);
+    expect(validateEnv({ ...valid, AI_PROVIDER: 'mock' }).AI_PROVIDER).toBe('mock');
+  });
 });

@@ -8,5 +8,7 @@ loadEnv({ path: resolve(import.meta.dirname, '../../.env'), quiet: true });
 export default defineConfig({
   schema: 'prisma/schema.prisma',
   migrations: { path: 'prisma/migrations' },
-  datasource: { url: env('DATABASE_URL') },
+  // Migrations may need a direct (non-pooled) connection, e.g. Neon's direct URL; the running
+  // API always uses DATABASE_URL (see PrismaService).
+  datasource: { url: process.env.DIRECT_DATABASE_URL || env('DATABASE_URL') },
 });

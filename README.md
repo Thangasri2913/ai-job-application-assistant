@@ -40,6 +40,7 @@ Full guide: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 - [API](docs/API.md)
 - [AI architecture & trust rules](docs/AI_ARCHITECTURE.md)
 - [Architecture decision records](docs/adr/README.md)
+- [Deployment (portfolio/testing: Vercel, Render, Neon, R2)](docs/DEPLOYMENT.md)
 
 ## Repository
 
