@@ -15,6 +15,7 @@
   "scripts": {
     "build:shared": "npm run build -w @job-assist/shared",
     "build": "npm run build:shared && npm run build -w @job-assist/api && npm run build -w @job-assist/web",
+    "dev": "bash scripts/dev.sh",
     "dev:api": "npm run start:dev -w @job-assist/api",
     "dev:web": "npm run start -w @job-assist/web",
     "lint": "npm run lint -w @job-assist/api && npm run lint -w @job-assist/web",

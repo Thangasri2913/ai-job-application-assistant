@@ -1,55 +1,102 @@
-# Development
+# Local development
+
+## Quick start
+
+```bash
+git clone <repository-url>
+cd JOB-ASSIST
+npm install            # optional: ./scripts/dev.sh installs dependencies if they are missing
+./scripts/dev.sh       # or: npm run dev
+```
+
+On first run `dev.sh` creates `.env` from `.env.example`. Its placeholder passwords work for local development as they are, so no further configuration is required. After that, `./scripts/dev.sh` is the only command you need.
+
+## Local development vs. deployment
+
+These are two separate workflows:
+
+|               | Local development                                                                                 | Deployment                                                                                                             |
+| ------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Command       | `./scripts/dev.sh`                                                                                | `./scripts/deploy.sh "message"`                                                                                        |
+| Runs          | Local Docker services (PostgreSQL, S3 storage, Keycloak), the API and the web app on your machine | Checks (format, lint, typecheck, build, tests), then commits and pushes `main`; Vercel and Render deploy from the push |
+| Configuration | Your local `.env` (local values only: `dev.sh` refuses production URLs)                           | Production values live only in the Vercel and Render settings, never in `.env` or the repository                       |
+| Guide         | This document                                                                                     | [DEPLOYMENT-AUTOMATION.md](DEPLOYMENT-AUTOMATION.md), [DEPLOYMENT.md](DEPLOYMENT.md)                                   |
 
 ## Prerequisites
 
-| Tool          | Version                                  | Notes                                                                       |
-| ------------- | ---------------------------------------- | --------------------------------------------------------------------------- |
-| Node.js       | 22.x (≥ 22.12; pinned 22.18 in `.nvmrc`) | `nvm use`. Node 18 is not supported.                                        |
-| npm           | 11+                                      | `npm i -g npm@11`. npm 10.9 crashes on this dependency graph (`edgesOut`).  |
-| Docker        | with Compose v2                          | Runs PostgreSQL, S3-compatible storage, Keycloak and Keycloak's PostgreSQL  |
-| Google Chrome | any current                              | Only for the browser end-to-end test (Playwright uses the installed Chrome) |
+| Tool          | Version                                  | Notes                                                                        |
+| ------------- | ---------------------------------------- | ---------------------------------------------------------------------------- |
+| Node.js       | 22.x (≥ 22.12; pinned 22.18 in `.nvmrc`) | `nvm use`. Node 18 is not supported.                                         |
+| npm           | 11+                                      | `npm i -g npm@11`. npm 10.9 crashes on this dependency graph (`edgesOut`).   |
+| Docker        | with Compose v2, daemon running          | Runs PostgreSQL, S3-compatible storage, Keycloak and Keycloak's PostgreSQL   |
+| curl          | any                                      | Used by `dev.sh` for health checks                                           |
+| Google Chrome | any current                              | Only for the browser end-to-end tests (Playwright uses the installed Chrome) |
 
-## First-time setup
+Supported environment: Linux and macOS with bash. On Windows, use WSL2.
 
-```bash
-nvm use
-cp .env.example .env            # then set the secrets below
-npm install                     # also builds packages/shared and generates the Prisma client
-npm run db:up                   # PostgreSQL :5434 (+ job_assist_test), SeaweedFS S3 :8333, Keycloak :8180 (+ keycloak-db)
-docker compose ps               # wait until keycloak is (healthy), ~30 s on first start
-npm run db:migrate:deploy       # apply all migrations
-```
+## One-command startup: `./scripts/dev.sh`
 
-In `.env`, set:
+What it does, in order (any failure stops it with an explanation):
 
-- `POSTGRES_PASSWORD`, and the same password inside `DATABASE_URL` and `TEST_DATABASE_URL`
-- `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY`: any values; the local storage container is configured from them
-- `KEYCLOAK_ADMIN_PASSWORD` and `KEYCLOAK_DB_PASSWORD`: random values, e.g. `node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"`. The admin user is created only on Keycloak's **first** start; changing the variable later does not change the password.
+1. **Checks prerequisites:**
+   - Node, npm 11, Docker Compose and the Docker daemon are available.
+   - Creates `.env` from `.env.example` if it is missing; an existing `.env` is never overwritten.
+   - **Refuses production configuration.** It stops if `DATABASE_URL`, `DIRECT_DATABASE_URL`, `TEST_DATABASE_URL` or `S3_ENDPOINT` aren't local, if Keycloak or `VITE_API_URL` point at a remote host, or if `NODE_ENV=production`. It shows host names only, never values.
+   - Checks that the API and web ports are free.
+2. **Starts local infrastructure** with `npm run db:up` (PostgreSQL, SeaweedFS S3, Keycloak and its database), and waits until PostgreSQL is healthy, storage answers and Keycloak serves the realm's discovery document.
+3. **Prepares the database:**
+   - installs dependencies if `node_modules` is missing (`npm ci`);
+   - builds `packages/shared` if needed;
+   - runs `prisma generate`, then `prisma migrate deploy` against the **local** database. The URL is passed explicitly, so no other database can be reached.
+4. **Starts the API** with `npm run dev:api` (tsc-watch: recompiles and restarts on changes).
+5. **Starts the web app** with `npm run dev:web` (Vite with hot reload).
+6. **Health checks:** waits for `GET /api/v1/health`, reports `GET /api/v1/health/ready` (database, storage, Keycloak), then checks that the web app serves. It then prints the URLs.
 
-npm 11 only runs install scripts for packages listed in `allowScripts` in the root `package.json` (esbuild, Prisma, SWC). If a native package fails to load, run `npm install-scripts approve <pkg> && npm rebuild <pkg>`.
+Output from both servers appears in the terminal prefixed `[api]` / `[web]`, and is also written to `.dev/api.log` and `.dev/web.log` (git-ignored).
 
-## Run
+| Option          | Effect                                                                                                                                         |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--no-install`  | Never install dependencies (fails if `node_modules` is missing)                                                                                |
+| `--no-keycloak` | Don't start the local Keycloak; use another **development** Keycloak configured in `.env` (it must be reachable; production hosts are refused) |
+| `--reset-db`    | Reset the **local** database first (deletes all its data). Asks you to type `reset`                                                            |
+| `--help`        | Usage                                                                                                                                          |
 
-```bash
-npm run dev:api     # http://localhost:3000/api/v1   (Swagger: http://localhost:3000/api/docs)
-npm run dev:web     # http://localhost:4200          (Vite; proxies /api → :3000)
-```
+Pass options through npm with `npm run dev -- --no-install`.
 
-Health: `curl localhost:3000/api/v1/health/ready` reports `database`, `storage` and `identityProvider` (Keycloak).
+### Stopping
 
-Start order: `npm run db:up` → wait for Keycloak healthy → `npm run dev:api` → `npm run dev:web`.
+Press **Ctrl+C**. `dev.sh` stops only the API and web processes it started; it stops them as process groups and never kills other Node processes. The Docker containers keep running so the next start is fast. Stop them with `npm run db:down` (data is kept in Docker volumes).
 
-### URLs
+If the API or web server exits on its own, `dev.sh` names which one stopped, prints the last lines of its log and stops the other.
 
-| What                        | URL                                                                                |
+Running `dev.sh` again is safe: containers are reused, migrations that are already applied are skipped, and `.env` is left alone.
+
+### Local URLs
+
+Ports come from `.env` (`API_PORT`, `POSTGRES_HOST_PORT`, `S3_HOST_PORT`, `KEYCLOAK_HOST_PORT`) and `apps/web/vite.config.ts`; `dev.sh` prints the ones in use.
+
+| What                        | Default URL                                                                        |
 | --------------------------- | ---------------------------------------------------------------------------------- |
 | App                         | http://localhost:4200                                                              |
 | OIDC callback (React route) | http://localhost:4200/auth/callback                                                |
-| API / Swagger               | http://localhost:3000/api/v1 · http://localhost:3000/api/docs                      |
+| API                         | http://localhost:3000/api/v1 (Swagger at /api/docs when `SWAGGER_ENABLED=true`)    |
+| API health / readiness      | http://localhost:3000/api/v1/health · /api/v1/health/ready                         |
 | Keycloak admin console      | http://localhost:8180/admin (user `KEYCLOAK_ADMIN_USERNAME`, password from `.env`) |
 | Realm issuer                | http://localhost:8180/realms/ai-job-assistant                                      |
 | OIDC discovery              | http://localhost:8180/realms/ai-job-assistant/.well-known/openid-configuration     |
 | User self-service (account) | http://localhost:8180/realms/ai-job-assistant/account                              |
+| PostgreSQL                  | localhost:5434 (databases `job_assist` and `job_assist_test`)                      |
+| S3-compatible storage       | http://localhost:8333                                                              |
+
+## Local services
+
+**PostgreSQL** runs in Docker (`postgres` service, port 5434). `job_assist` is the development database and `job_assist_test` is used only by the API integration tests. The local `.env` must point `DATABASE_URL` **and** `DIRECT_DATABASE_URL` at it; `dev.sh` refuses anything else. Production database URLs belong only in Render.
+
+**Object storage:** locally, resume and document files go to SeaweedFS, an S3-compatible container (`object-storage`, port 8333, [ADR-0009](adr/0009-local-object-storage-seaweedfs.md)). The API uses the same S3 code path as production (Cloudflare R2), so **no R2 account or credentials are needed locally**. The local S3 keys in `.env` are arbitrary; the container is configured from them. Never put R2 credentials in your local `.env`: `dev.sh` refuses a non-local `S3_ENDPOINT`.
+
+**AI provider:** `AI_PROVIDER=none` (the default) needs no key, and every feature works with its rule-based layer, with notes in the UI saying that AI isn't configured. To try AI locally, set `AI_PROVIDER=anthropic`, `AI_MODEL` and `ANTHROPIC_API_KEY` in `.env`. `AI_PROVIDER=mock` is only for tests.
+
+**Background work** (resume parsing, job analysis, job-alert searches and the alert scheduler, career-insight generation) runs inside the API process. There is no Redis and no separate worker to start.
 
 ## Authentication (Keycloak)
 
@@ -88,7 +135,7 @@ One `.env` at the repo root serves Compose, the API, Prisma and Vite (`envDir: '
 
 All API variables are validated at startup (`apps/api/src/config/env.schema.ts`). The API refuses to start with invalid configuration and names the bad variables, never their values.
 
-## Commands
+## Running tests and other commands
 
 | Task                                                                               | Command                                 |
 | ---------------------------------------------------------------------------------- | --------------------------------------- |
@@ -103,6 +150,7 @@ All API variables are validated at startup (`apps/api/src/config/env.schema.ts`)
 | New migration after editing `schema.prisma`                                        | `npm run db:migrate -- --name <change>` |
 | Apply migrations                                                                   | `npm run db:migrate:deploy`             |
 | Prisma Studio                                                                      | `npm run db:studio -w @job-assist/api`  |
+| Start everything locally                                                           | `./scripts/dev.sh` (or `npm run dev`)   |
 | Stop infrastructure                                                                | `npm run db:down`                       |
 
 API integration tests don't need Keycloak: they swap the JWKS for a local test key pair and sign tokens with it, so the real verifier (issuer, audience, `azp`, expiry, signature) still runs. The Playwright tests register fresh throwaway accounts in the real Keycloak each run:
@@ -117,7 +165,28 @@ API integration tests don't need Keycloak: they swap the JWKS for a local test k
 
 They **reuse** an API on :3000 and Vite on :4200 if they are already running (your `dev:api`/`dev:web`), otherwise they start them. They write to the development database, but only for the new throwaway users.
 
-Integration tests apply migrations to `job_assist_test`, truncate between tests, and use a separate `job-assist-test` bucket. They refuse to run without `TEST_DATABASE_URL`.
+Integration tests apply migrations to `job_assist_test`, truncate between tests, and use a separate `job-assist-test` bucket. They refuse to run without `TEST_DATABASE_URL`, or if it is the same as `DATABASE_URL`/`DIRECT_DATABASE_URL`. **Run only one `npm run test:e2e` at a time:** concurrent runs truncate each other's data and fail with deadlocks or spurious 404s.
+
+## Database migration workflow
+
+1. Edit `apps/api/prisma/schema.prisma`.
+2. Create a migration against the local database: `npm run db:migrate -- --name <change>`. It is applied locally and the client regenerated.
+3. Commit the new folder under `apps/api/prisma/migrations/`. Never edit a migration that has already been applied anywhere.
+4. Other developers get it automatically: `dev.sh` runs `prisma migrate deploy` on every start.
+5. Production applies pending migrations when the API container starts on Render (see [DEPLOYMENT.md](DEPLOYMENT.md)).
+
+`dev.sh` never resets the database unless you pass `--reset-db` and confirm.
+
+## Resetting local infrastructure completely
+
+This deletes **all local data**: the development and test databases, stored files and local Keycloak users.
+
+```bash
+docker compose down --volumes   # stops containers and deletes the postgres, object-storage and keycloak-db volumes
+./scripts/dev.sh                # recreates everything, imports the Keycloak realm, applies migrations
+```
+
+To reset only the development database: `./scripts/dev.sh --reset-db`.
 
 ## Project layout
 
@@ -160,6 +229,13 @@ packages/shared    API contract types and enums shared by web and api
 ```
 
 ## Troubleshooting
+
+- **Sample jobs locally**: `JOB_SOURCES=dev` (the default in `.env.example`) uses built-in sample postings, clearly labelled "Sample data". To try real jobs locally, register with Adzuna and set `JOB_SOURCES=adzuna` (or `adzuna,dev`) with `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` in your local `.env`; mind the 250 requests/day allowance.
+- **Job alerts find nothing / no recommendations**: the API log shows `Job discovery sources: …` at startup — locally it should list `dev (sample data)` (`JOB_SOURCES=dev` in `.env`). A run's outcome and reason are shown on the alert card (e.g. no reviewed resume, nothing above the minimum match score) and in its run history. The scheduler runs every 60 s; **Run now** uses the same pipeline.
+
+- **`dev.sh` says a URL points at a remote host**: your `.env` contains non-local values (for example production Neon or R2). Replace them with the local values from `.env.example`. Production values belong only in Render and Vercel.
+- **`dev.sh` says a port is already in use**: an API or web server is already running (e.g. your own `npm run dev:api`). Stop it first; `dev.sh` never stops processes it didn't start.
+- **`dev.sh` waits for Keycloak and times out**: first starts take longer. Check `npm run keycloak:logs`, then run `dev.sh` again.
 
 - **`Invalid environment configuration`**: the message lists the variables to fix.
 - **`npm error … edgesOut`**: you're on npm 10.9. Use npm 11.

@@ -42,6 +42,20 @@ services:
         value: 'false'
       - key: AI_PROVIDER
         value: none
+      - key: JOB_SOURCES
+        # Real jobs only (the dev sample source is refused in production anyway). Sources
+        # without settings are skipped and reported in the startup log.
+        value: adzuna,greenhouse,lever
+      - key: ADZUNA_APP_ID
+        sync: false # from https://developer.adzuna.com
+      - key: ADZUNA_APP_KEY
+        sync: false
+      - key: ADZUNA_COUNTRY
+        value: in
+      - key: GREENHOUSE_BOARDS
+        sync: false # employer board tokens, e.g. "acme,globex=Globex Corp" (public data)
+      - key: LEVER_SITES
+        sync: false # employer Lever site names, e.g. "initech=Initech" (public data)
       - key: JOB_ALERT_SCHEDULER_ENABLED
         value: 'true'
 

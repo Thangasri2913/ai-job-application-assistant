@@ -23,6 +23,34 @@ export async function apiJson<T>(page: Page, path: string): Promise<T> {
   }, path);
 }
 
+/** An API call (any method) made with the signed-in user's own access token. */
+export async function apiCall<T>(
+  page: Page,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; body: T }> {
+  return page.evaluate(
+    async ({ m, p, b }) => {
+      const key = Object.keys(sessionStorage).find((k) => k.startsWith('oidc.user:'));
+      const token = key
+        ? (JSON.parse(sessionStorage.getItem(key)!) as { access_token: string }).access_token
+        : '';
+      const res = await fetch(`/api/v1${p}`, {
+        method: m,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(b === undefined ? {} : { 'Content-Type': 'application/json' }),
+        },
+        body: b === undefined ? undefined : JSON.stringify(b),
+      });
+      const text = await res.text();
+      return { status: res.status, body: (text ? JSON.parse(text) : null) as T };
+    },
+    { m: method, p: path, b: body },
+  );
+}
+
 /** Uploads a resume from the library, reviews it and makes it current (v1). */
 export async function addReviewedResume(
   page: Page,

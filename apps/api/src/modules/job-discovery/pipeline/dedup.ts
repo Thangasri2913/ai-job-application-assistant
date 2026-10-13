@@ -3,7 +3,9 @@
  * 1. same source + external id (handled by the unique key on discovered_jobs);
  * 2. same canonical URL;
  * 3. same company + normalised title + location;
- * 4. same company and near-identical description.
+ * 4. same company and title, a compatible location, and a near-identical description (a
+ *    re-worded copy of the same posting). Similar titles or the same role in another city
+ *    are never merged.
  */
 
 const TRACKING_PARAMS = /^(utm_\w+|ref|refid|source|src|trk|trackingid|gclid|fbclid)$/i;
@@ -113,6 +115,8 @@ export function findDuplicate<T extends DedupCandidate>(
     canonicalUrl: string | null;
     dedupKey: string;
     companyName: string;
+    title: string;
+    location: string | null;
     description: string;
   },
   jobs: T[],
@@ -124,9 +128,13 @@ export function findDuplicate<T extends DedupCandidate>(
   const byKey = jobs.find((j) => dedupKey(j.companyName, j.title, j.location) === posting.dedupKey);
   if (byKey) return { job: byKey, reason: 'COMPANY_TITLE_LOCATION' };
   const company = normalizeCompany(posting.companyName);
+  const title = normalizeTitle(posting.title);
+  const place = normalizeLocation(posting.location);
   const similar = jobs.find(
     (j) =>
       normalizeCompany(j.companyName) === company &&
+      normalizeTitle(j.title) === title &&
+      (!place || !j.location || normalizeLocation(j.location) === place) &&
       descriptionSimilarity(j.normalizedDescription, posting.description) >=
         DESCRIPTION_DUPLICATE_THRESHOLD,
   );

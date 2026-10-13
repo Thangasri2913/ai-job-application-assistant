@@ -42,7 +42,9 @@ Resume tailoring (new version, diff vs. original, every change traceable to a so
 
 ### Phase 3 — Interview & insights (interview preparation ✅ done)
 
-Done: personalised practice and mock interviews with stored questions, immutable answers, practice feedback (AI or rule-based) and reports ([ADR-0017](adr/0017-interview-preparation.md)). Still to come: career insights from application outcomes; voice/video practice.
+Done (career intelligence, [ADR-0019](adr/0019-career-intelligence.md)): outcome tracking (technical interview, accepted, rejection categories, offer details, actual dates), funnel and conversion analytics, resume-version and match-score performance, skill gaps, guarded pattern detection and evidence-based insights (rules, optional AI).
+
+Done: personalised practice and mock interviews with stored questions, immutable answers, practice feedback (AI or rule-based) and reports ([ADR-0017](adr/0017-interview-preparation.md)). Still to come: voice/video practice.
 Interview preparation per job; career insights from application outcomes.
 
 ### Phase 4 — Discovery

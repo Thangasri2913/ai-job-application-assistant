@@ -29,7 +29,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { label: 'Resumes', icon: FileText, path: '/resumes', available: true },
   { label: 'Interview', icon: Mic, path: '/interviews', available: true },
   { label: 'Career Profile', icon: BadgeCheck, path: '/profile', available: true },
-  { label: 'Analytics', icon: BarChart3, path: '/analytics', available: false },
+  { label: 'Career Intelligence', icon: BarChart3, path: '/career-intelligence', available: true },
 ];
 
 export const SECONDARY_NAV_ITEMS: readonly NavItem[] = [

@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
-import type { JobSearchSourceResult } from '@job-assist/shared';
+import type { JobSearchSourceResult, JobSearchStrategy } from '@job-assist/shared';
 import { AppException } from '../../common/errors/app.exception.js';
 import { ErrorCode } from '../../common/errors/error-codes.js';
 import { PrismaService } from '../../database/prisma.service.js';
@@ -13,6 +13,7 @@ import { scoreMatch } from '../jobs/matching/match-scorer.js';
 import { subjectFromResume } from '../jobs/matching/match-subjects.js';
 import { rankMatches } from '../jobs/matching/recommendation.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
+import { ProfileService } from '../profile/profile.service.js';
 import type { MatchCandidate } from '../resumes/resumes.service.js';
 import { ResumesService } from '../resumes/resumes.service.js';
 import { findDuplicate } from './pipeline/dedup.js';
@@ -24,6 +25,7 @@ import {
   normalizePosting,
 } from './pipeline/normalize.js';
 import { explainRecommendation, rankScore } from './pipeline/ranking.js';
+import { buildSearchStrategy, type ProfileTerms } from './pipeline/search-strategy.js';
 import { JobSearchDispatcher } from './job-search-dispatcher.js';
 import { JobSourceError } from './sources/job-source-adapter.js';
 import { type ActiveSource, JobSourceRegistry } from './sources/job-source-registry.js';
@@ -37,7 +39,7 @@ const SOURCE_TIMEOUT_MS = 20_000;
 export const STALE_RUN_MS = 30 * 60 * 1000;
 
 const NO_SOURCES =
-  'No job sources are configured. Set JOB_SOURCES on the server to enable job discovery.';
+  'No job sources are configured on this server, so alerts can’t find jobs yet. Development sample data is never used in production; a supported job source must be configured.';
 const NO_RESUMES =
   'None of your active resumes could be compared. Add and review a resume to get recommendations.';
 const SOURCE_FAILED =
@@ -52,11 +54,14 @@ interface Found {
 }
 
 interface Counters {
+  jobsDiscovered: number;
   jobsFound: number;
   jobsCreated: number;
   jobsSkipped: number;
   belowThreshold: number;
   recommendationsCreated: number;
+  duplicates: number;
+  jobsAnalyzed: number;
 }
 
 const toJson = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -86,6 +91,7 @@ export class JobDiscoveryService {
     private readonly resumes: ResumesService,
     private readonly notifications: NotificationsService,
     private readonly dispatcher: JobSearchDispatcher,
+    private readonly profile: ProfileService,
   ) {}
 
   /**
@@ -154,29 +160,49 @@ export class JobDiscoveryService {
     if (!run || run.status !== 'RUNNING') return;
     const { alert, userId } = run;
     const counters: Counters = {
+      jobsDiscovered: 0,
       jobsFound: 0,
       jobsCreated: 0,
       jobsSkipped: 0,
       belowThreshold: 0,
       recommendationsCreated: 0,
+      duplicates: 0,
+      jobsAnalyzed: 0,
     };
     let sourceResults: JobSearchSourceResult[] = [];
+    let strategy: JobSearchStrategy | null = null;
     try {
       const sources = await this.registry.active();
+      this.logger.log(
+        {
+          runId,
+          alertId: alert.id,
+          trigger: run.trigger,
+          sources: sources.map((s) => s.adapter.descriptor.key),
+        },
+        'Job search started',
+      );
       if (sources.length === 0) {
+        this.logger.warn(
+          { runId, alertId: alert.id },
+          'Job search failed: no job sources configured',
+        );
         await this.finish(run.id, alert, 'FAILED', counters, [], { errorMessage: NO_SOURCES });
         return;
       }
-      const searched = await this.search(sources, alert);
+      strategy = buildSearchStrategy(alert, await this.profileTerms(userId));
+      const searched = await this.search(sources, strategy);
       sourceResults = searched.results;
       const found = searched.found;
       counters.jobsFound = found.length;
+      counters.jobsDiscovered = sourceResults.reduce((n, r) => n + (r.returned ?? 0), 0);
       const failedSources = sourceResults.filter((r) => r.status === 'FAILED').length;
       const status =
         failedSources === 0 ? 'COMPLETED' : failedSources === sources.length ? 'FAILED' : 'PARTIAL';
       if (status === 'FAILED') {
         await this.finish(run.id, alert, 'FAILED', counters, sourceResults, {
           errorMessage: 'No job source could be searched. The alert will try again later.',
+          strategy,
         });
         return;
       }
@@ -184,7 +210,10 @@ export class JobDiscoveryService {
       const { candidates } = await this.resumes.listMatchCandidates(userId);
       if (candidates.length === 0) {
         counters.jobsSkipped = found.length;
-        await this.finish(run.id, alert, status, counters, sourceResults, { note: NO_RESUMES });
+        await this.finish(run.id, alert, status, counters, sourceResults, {
+          note: NO_RESUMES,
+          strategy,
+        });
         return;
       }
 
@@ -192,28 +221,44 @@ export class JobDiscoveryService {
       await this.finish(run.id, alert, status, counters, sourceResults, {
         note,
         errorMessage: status === 'PARTIAL' ? 'Some job sources could not be searched.' : null,
+        strategy,
       });
     } catch (error) {
       this.logger.error({ err: error, runId }, 'Job search failed');
       await this.finish(run.id, alert, 'FAILED', counters, sourceResults, {
         errorMessage: 'The search could not be completed. Please try again.',
+        strategy,
       }).catch((e: unknown) =>
         this.logger.error({ err: e, runId }, 'Could not record the failed search'),
       );
     }
   }
 
-  /** Queries every source; one failing source never stops the others. */
+  /** The Career Profile terms a search strategy may use; null if the profile can't be read. */
+  private async profileTerms(userId: string): Promise<ProfileTerms | null> {
+    try {
+      return await this.profile.getDetails(userId);
+    } catch (error) {
+      this.logger.warn({ err: error, userId }, 'Career Profile unavailable for the search');
+      return null;
+    }
+  }
+
+  /**
+   * Queries every source; one failing source never stops the others. Postings from
+   * employers' own job boards come first, so when a job search service lists the same job
+   * the employer's original posting is the one kept.
+   */
   private async search(
     sources: ActiveSource[],
-    alert: AlertRow,
+    strategy: JobSearchStrategy,
   ): Promise<{ found: Found[]; results: JobSearchSourceResult[] }> {
     const criteria: AlertCriteria = {
-      keywords: alert.keywords,
-      locations: alert.locations,
-      remotePreference: alert.remotePreference,
-      employmentTypes: alert.employmentTypes,
-      experienceLevel: alert.experienceLevel,
+      keywords: strategy.keywords,
+      locations: strategy.locations,
+      remotePreference: strategy.remotePreference,
+      employmentTypes: strategy.employmentTypes,
+      experienceLevel: strategy.experienceLevel,
     };
     const found: Found[] = [];
     const results: JobSearchSourceResult[] = [];
@@ -225,6 +270,7 @@ export class JobDiscoveryService {
         sourceName: d.name,
         isDevelopment: d.isDevelopment,
         status: 'OK',
+        returned: 0,
         found: 0,
         error: null,
       };
@@ -232,6 +278,7 @@ export class JobDiscoveryService {
         const raws = await withTimeout((signal) =>
           source.adapter.searchJobs({ ...criteria, limit: RESULTS_PER_SOURCE }, signal),
         );
+        result.returned = raws.length;
         for (const raw of raws.slice(0, RESULTS_PER_SOURCE)) {
           let posting: NormalizedPosting;
           try {
@@ -248,6 +295,10 @@ export class JobDiscoveryService {
           result.found++;
         }
         await this.registry.recordHealth(source.id, null);
+        this.logger.log(
+          { source: d.key, returned: raws.length, matchedCriteria: result.found },
+          'Job source searched',
+        );
       } catch (error) {
         const message = error instanceof JobSourceError ? error.message : SOURCE_FAILED;
         // Log the source and run context only: never credentials or raw provider output.
@@ -258,6 +309,8 @@ export class JobDiscoveryService {
       }
       results.push(result);
     }
+    const order = (f: Found) => (f.source.adapter.descriptor.postingOrigin === 'EMPLOYER' ? 0 : 1);
+    found.sort((a, b) => order(a) - order(b));
     return { found, results };
   }
 
@@ -285,6 +338,13 @@ export class JobDiscoveryService {
     const recommendedJobIds = new Set(recommended.map((r) => r.jobId));
     // Within a run, a posting listed by two sources is handled once.
     const handledJobIds = new Set<string>();
+    // Names of job search services in this run, whose copies an employer posting replaces.
+    const aggregators = new Set(
+      found
+        .map((f) => f.source.adapter.descriptor)
+        .filter((d) => d.postingOrigin === 'AGGREGATOR')
+        .map((d) => d.name),
+    );
     let limitReached = false;
 
     for (const { source, posting, criteria } of found) {
@@ -301,6 +361,7 @@ export class JobDiscoveryService {
           where: { id: existing.id },
           data: { lastSeenAt: now },
         });
+        if (existing.outcome === 'DUPLICATE') counters.duplicates++;
         counters.jobsSkipped++;
         continue;
       }
@@ -312,6 +373,8 @@ export class JobDiscoveryService {
             canonicalUrl: posting.canonicalUrl,
             dedupKey: posting.dedupKey,
             companyName: posting.companyName,
+            title: posting.title,
+            location: posting.location,
             description: posting.description,
           },
           userJobs,
@@ -324,7 +387,23 @@ export class JobDiscoveryService {
             !handledJobIds.has(duplicate.job.id);
           if (!ownLeftover) {
             // The user already has this job (added manually or recommended earlier).
+            if (
+              source.adapter.descriptor.postingOrigin === 'EMPLOYER' &&
+              posting.sourceUrl &&
+              duplicate.job.origin === 'DISCOVERED' &&
+              duplicate.job.source !== null &&
+              aggregators.has(duplicate.job.source)
+            ) {
+              // Prefer the employer's original posting over a job search service's copy.
+              const upgraded = {
+                jobUrl: posting.sourceUrl,
+                source: source.adapter.descriptor.name,
+              };
+              await this.jobs.useOriginalPosting(userId, duplicate.job.id, upgraded);
+              Object.assign(duplicate.job, upgraded);
+            }
             await record({ outcome: 'DUPLICATE', jobId: duplicate.job.id });
+            counters.duplicates++;
             counters.jobsSkipped++;
             continue;
           }
@@ -369,6 +448,7 @@ export class JobDiscoveryService {
             origin: 'DISCOVERED',
             inLibrary: false,
             currentAnalysisId: null,
+            source: source.adapter.descriptor.name,
           });
         }
       }
@@ -394,6 +474,7 @@ export class JobDiscoveryService {
         counters.jobsSkipped++;
         continue;
       }
+      counters.jobsAnalyzed++;
       if (chosen.score < alert.minimumMatchScore) {
         await record({ outcome: 'BELOW_THRESHOLD', jobId, screeningScore: chosen.score });
         counters.belowThreshold++;
@@ -486,6 +567,7 @@ export class JobDiscoveryService {
       location: p.location,
       workMode: p.workMode,
       postedAt: p.postedAt,
+      discoveredFrom: p.discoveredFrom ?? null,
       outcome: data.outcome,
       jobId: data.jobId ?? null,
       screeningScore: data.screeningScore ?? null,
@@ -507,7 +589,11 @@ export class JobDiscoveryService {
     status: 'COMPLETED' | 'FAILED' | 'PARTIAL',
     counters: Counters,
     sourceResults: JobSearchSourceResult[],
-    extra: { errorMessage?: string | null; note?: string | null },
+    extra: {
+      errorMessage?: string | null;
+      note?: string | null;
+      strategy?: JobSearchStrategy | null;
+    },
   ): Promise<void> {
     const completedAt = new Date();
     const updated = await this.prisma.jobSearchRun.updateMany({
@@ -516,12 +602,14 @@ export class JobDiscoveryService {
         status,
         ...counters,
         sourceResults: toJson(sourceResults),
+        ...(extra.strategy ? { searchStrategy: toJson(extra.strategy) } : {}),
         errorMessage: extra.errorMessage ?? null,
         note: extra.note ?? null,
         completedAt,
       },
     });
     if (updated.count === 0) return; // Already finished (e.g. marked interrupted).
+    this.logger.log({ runId, alertId: alert.id, status, ...counters }, 'Job search finished');
     const run = await this.prisma.jobSearchRun.findUniqueOrThrow({
       where: { id: runId },
       select: { trigger: true },

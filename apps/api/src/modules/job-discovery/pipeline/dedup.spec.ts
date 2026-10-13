@@ -46,6 +46,8 @@ describe('duplicate detection', () => {
       canonicalUrl: 'https://example.com/jobs/42',
       dedupKey: dedupKey('Other Co', 'Designer', 'Pune'),
       companyName: 'Other Co',
+      title: 'Designer',
+      location: 'Pune',
       description: 'Something else entirely for a designer role in Pune.',
     };
     expect(
@@ -61,17 +63,19 @@ describe('duplicate detection', () => {
         [job()],
       )?.reason,
     ).toBe('COMPANY_TITLE_LOCATION');
-    expect(
-      findDuplicate(
-        {
-          canonicalUrl: null,
-          dedupKey: dedupKey('Acme', 'UI Engineer', 'Remote'),
-          companyName: 'Acme Technologies',
-          description: job().normalizedDescription,
-        },
-        [job()],
-      )?.reason,
-    ).toBe('DESCRIPTION');
+    // A re-posted copy (location not stated) with the same text is the same job…
+    const copy = {
+      canonicalUrl: null,
+      dedupKey: dedupKey('Acme', 'Frontend Engineer', null),
+      companyName: 'Acme Technologies',
+      title: 'Frontend Engineer',
+      location: null,
+      description: job().normalizedDescription,
+    };
+    expect(findDuplicate(copy, [job()])?.reason).toBe('DESCRIPTION');
+    // …but a different role or the same role in another city never is, however similar.
+    expect(findDuplicate({ ...copy, title: 'UI Engineer' }, [job()])).toBeNull();
+    expect(findDuplicate({ ...copy, location: 'Chennai' }, [job()])).toBeNull();
     expect(findDuplicate(posting, [job()])).toBeNull();
   });
 });

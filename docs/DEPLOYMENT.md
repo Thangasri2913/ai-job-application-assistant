@@ -126,11 +126,16 @@ Files are only ever served through the API after an ownership check; storage key
 
 ### Background work / job discovery (API service)
 
-| Variable                               | Value  | Notes                                                                                                                                                                     |
-| -------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `JOB_ALERT_SCHEDULER_ENABLED`          | `true` | In-process scheduler                                                                                                                                                      |
-| `JOB_ALERT_SCHEDULER_INTERVAL_SECONDS` | `60`   |                                                                                                                                                                           |
-| `JOB_SOURCES`                          | empty  | The only adapter (`dev`, sample data) is refused in production, so alert runs report "No job sources are configured" until a real, terms-reviewed source adapter is added |
+| Variable                               | Value       | Notes                                                                                                                                                             |
+| -------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JOB_ALERT_SCHEDULER_ENABLED`          | `true`      | In-process scheduler                                                                                                                                              |
+| `JOB_ALERT_SCHEDULER_INTERVAL_SECONDS` | `60`        |                                                                                                                                                                   |
+| `JOB_SOURCES`                          | `adzuna`    | Real jobs from the official Adzuna API. The `dev` sample source is refused in production. Empty = no source: alert runs fail with "No job sources are configured" |
+| `ADZUNA_APP_ID` 🔒                     | from Adzuna | Register an application at https://developer.adzuna.com                                                                                                           |
+| `ADZUNA_APP_KEY` 🔒                    | from Adzuna | Never logged; never sent to the browser                                                                                                                           |
+| `ADZUNA_COUNTRY`                       | `in`        | Adzuna country code (`in`, `gb`, `us`, `au`, `ca`, `de`, …)                                                                                                       |
+| `ADZUNA_MAX_DAYS_OLD`                  | `30`        | Optional: only ads up to this age                                                                                                                                 |
+| `ADZUNA_DAILY_REQUEST_LIMIT`           | `200`       | Optional: this server's daily request budget (Adzuna's default allowance is 250/day)                                                                              |
 
 ---
 
@@ -181,3 +186,58 @@ docker build -t job-assist-keycloak infrastructure/keycloak-prod
 ```
 
 After deploying: `GET https://API_URL/api/v1/health` → `{"status":"ok"}`; `GET https://API_URL/api/v1/health/ready` → all `up`; sign up at `https://APP_URL`.
+
+## Real job discovery (production)
+
+Production discovers real jobs only from **supported sources**: official APIs or published feeds, used within their terms. The sources, their terms, configuration and limitations are documented in [JOB-DISCOVERY.md](JOB-DISCOVERY.md). Implemented sources:
+
+- **Adzuna** (`adzuna`): needs credentials.
+- **Remotive** (`remotive`): no key. Read its terms first; it is not enabled by default.
+- **Greenhouse** employer boards (`greenhouse`): configure `GREENHOUSE_BOARDS`.
+- **Lever** employer sites (`lever`): configure `LEVER_SITES`.
+
+LinkedIn, Naukri and Indeed are not integrated.
+
+`render.yaml` sets `JOB_SOURCES=adzuna,greenhouse,lever`. Each source works once its settings are added in the Render dashboard; until then it is reported as not configured in the startup log and the source list.
+
+- **Setup:** register an application at developer.adzuna.com and accept Adzuna's terms. Then set `JOB_SOURCES=adzuna`, `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` and `ADZUNA_COUNTRY` on Render. The startup log then shows `Job discovery sources: adzuna (real jobs).`
+- **Terms:**
+  - Each displayed ad is labelled **"Jobs by Adzuna"** with a link to Adzuna's local site (recommendation cards and the job page do this).
+  - Adzuna's default allowance is 25 requests/minute and 250/day. Each alert run makes at most 4 requests (keywords × locations), and the server enforces a per-minute limit and `ADZUNA_DAILY_REQUEST_LIMIT`.
+  - Commercial organisations get a trial and may need a licence, so check that your use fits Adzuna's terms.
+- **What arrives:**
+  - Adzuna returns real ads with a title, company, location, posting date and a link to the original posting.
+  - Its `description` is usually a **snippet**, and the full text is used when the API provides it. Matching is therefore based on less text than a pasted posting, and some ads are screened out as having too little to compare. Thresholds are never lowered to compensate.
+  - Ads without a company are skipped, never filled in.
+- **Development sample data never reaches production users:**
+  - The `dev` source is refused when `NODE_ENV=production`, both at startup and again before every search.
+  - Jobs from a development source are stored with `jobs.is_sample_data = true`, and production recommendation endpoints (list, detail, save, dismiss, dashboard counts) exclude them at the query level.
+- **How to verify the jobs are real:**
+  - The run history lists the source as **Adzuna**, not "Development sample jobs".
+  - Cards show **View posting** (an adzuna.* link) and **Jobs by Adzuna**, with no "Sample data" badge and no "Development mode" banner.
+  - In the database, `SELECT count(*) FROM jobs WHERE origin = 'DISCOVERED' AND is_sample_data` should be `0`.
+
+### Checking for and removing sample data in production
+
+Production never enabled the `dev` source (it has been refused in production since job discovery shipped), so there should be no sample jobs. To check, read-only, in the Neon SQL editor:
+
+```sql
+SELECT count(*) AS sample_jobs FROM jobs WHERE is_sample_data;
+SELECT count(*) AS sample_recommendations
+FROM job_recommendations r JOIN jobs j ON j.id = r.job_id WHERE j.is_sample_data;
+```
+
+If any exist, they are already hidden from recommendations. To delete them, remove only sample jobs that no application uses (deleting a job cascades to its recommendations, analyses and matches; applications are kept by design):
+
+```sql
+DELETE FROM jobs j WHERE j.is_sample_data AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_id = j.id);
+```
+
+## Troubleshooting job alerts in production
+
+If alerts never produce recommendations, check the API's startup log on Render:
+
+- `Job discovery has no usable job sources … (JOB_SOURCES is empty)` — set `JOB_SOURCES` (e.g. `adzuna,greenhouse,lever`) and the matching settings (above). `"greenhouse" is enabled but not configured (GREENHOUSE_BOARDS is empty)` / `LEVER_SITES is empty` means no employer boards are listed. `"adzuna" is enabled but not configured (ADZUNA_APP_ID and ADZUNA_APP_KEY are not set)` means the credentials are missing. Without a usable source, alert runs end as **Failed** with “No job sources are configured on this server…”, shown on the Job Alerts page.
+- A run shows the source as **Failed** with "Adzuna rejected the API credentials", "request limit was reached", "could not be reached" or "The Greenhouse job board “x” was not found": the message comes from the source result (credentials are never logged). Other sources still run; the run is **Partly completed**.
+- `Job alert scheduler started: checking for due alerts every 60s` — the scheduler is running. Each scheduled run logs `Due job alerts found`, `Job alert claimed for a scheduled run`, `Job search started`, `Job source searched` and `Job search finished` (ids and counts only).
+- On Render's free plan the service sleeps when idle; due alerts run on the first scheduler tick after it wakes.

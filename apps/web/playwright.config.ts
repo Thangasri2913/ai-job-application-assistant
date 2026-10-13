@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 /**
  * Browser end-to-end tests against the real stack: React (Vite) → NestJS API → PostgreSQL
- * + S3 storage. Requires `npm run db:up` and migrations applied (see docs/DEVELOPMENT.md).
+ * + S3 storage. Requires `npm run db:up` and migrations applied (see docs/LOCAL-DEVELOPMENT.md).
  * Uses the locally installed Google Chrome, so no Playwright browser download is needed.
  */
 export default defineConfig({

@@ -4,6 +4,11 @@ import type { PrismaService } from '../src/database/prisma.service.js';
 import { JobAlertScheduler } from '../src/modules/job-discovery/job-alert-scheduler.js';
 import { JobSearchDispatcher } from '../src/modules/job-discovery/job-search-dispatcher.js';
 import { DevJobSourceAdapter } from '../src/modules/job-discovery/sources/dev-job-source.js';
+import { AdzunaJobSourceAdapter } from '../src/modules/job-discovery/sources/adzuna-job-source.js';
+import { GreenhouseJobSourceAdapter } from '../src/modules/job-discovery/sources/greenhouse-job-source.js';
+import { LeverJobSourceAdapter } from '../src/modules/job-discovery/sources/lever-job-source.js';
+import { RemotiveJobSourceAdapter } from '../src/modules/job-discovery/sources/remotive-job-source.js';
+import { SampleDataPolicy } from '../src/modules/job-discovery/sample-data-policy.js';
 import {
   JOB_SOURCE_ADAPTERS,
   JobSourceAdapter,
@@ -24,6 +29,11 @@ const ALERT = {
 
 const SECRET = 'provider-secret-token-123';
 
+/** Well-known sites the app does not search: always listed, never enabled. */
+const NOT_INTEGRATED = ['linkedin', 'naukri', 'indeed'].map((key) =>
+  expect.objectContaining({ key, isEnabled: false, status: 'NOT_INTEGRATED' }),
+);
+
 /** A provider that always fails, with a credential-like string in its error. */
 class FailingSource extends JobSourceAdapter<never> {
   readonly descriptor: JobSourceDescriptor = {
@@ -32,6 +42,8 @@ class FailingSource extends JobSourceAdapter<never> {
     kind: 'API',
     isDevelopment: false,
     description: 'Test double',
+    attribution: null,
+    postingOrigin: 'AGGREGATOR',
   };
   isConfigured() {
     return true;
@@ -171,7 +183,14 @@ describe('Job discovery and alerts (e2e)', () => {
     it('lists the configured sources, flagging development data', async () => {
       const sources = (await user.get('/job-sources').expect(200)).body;
       expect(sources).toEqual([
-        expect.objectContaining({ key: 'dev', isDevelopment: true, isEnabled: true }),
+        expect.objectContaining({
+          key: 'dev',
+          isDevelopment: true,
+          isEnabled: true,
+          status: 'ACTIVE',
+          postingOrigin: 'SAMPLE',
+        }),
+        ...NOT_INTEGRATED,
       ]);
       const row = await prisma.jobSource.findUniqueOrThrow({ where: { key: 'dev' } });
       // No credential columns exist; the table holds descriptive data only.
@@ -233,7 +252,9 @@ describe('Job discovery and alerts (e2e)', () => {
         expect(r.source).toEqual({
           key: 'dev',
           name: 'Development sample jobs',
+          discoveredFrom: 'Development sample fixtures',
           isDevelopment: true,
+          attribution: null,
         });
         expect(r.alert).toEqual({ id: alert.id, name: ALERT.name });
       }
@@ -488,6 +509,68 @@ describe('Job discovery and alerts (e2e)', () => {
     });
   });
 
+  describe('scheduler state', () => {
+    it('does not run future, paused or deleted alerts', async () => {
+      await createReviewedResume(user, parsing, 'Angular Resume', ANGULAR_CONTENT);
+      const future = await createAlert({ name: 'Future' });
+      const deleted = await createAlert({ name: 'Deleted' });
+      await user.delete(`/job-alerts/${deleted.id}`).expect(204);
+      const scheduler = app.get(JobAlertScheduler);
+      // Just before the next scheduled time: nothing is due.
+      expect(await scheduler.tick(new Date(new Date(future.nextRunAt).getTime() - 1000))).toBe(0);
+      // Pause it, then pass its time: still nothing runs.
+      await user.patch(`/job-alerts/${future.id}`, { isActive: false }).expect(200);
+      expect(await scheduler.tick(new Date(new Date(future.nextRunAt).getTime() + 60_000))).toBe(0);
+      expect(await prisma.jobSearchRun.count({ where: { userId: user.userId } })).toBe(0);
+    });
+
+    it('skips an alert whose stored schedule is invalid, without blocking other alerts', async () => {
+      await createReviewedResume(user, parsing, 'Angular Resume', ANGULAR_CONTENT);
+      const good = await createAlert({ name: 'Good' });
+      const bad = await createAlert({ name: 'Bad' });
+      // Corrupt the stored time zone (the API never accepts one).
+      await prisma.jobSearchAlert.update({
+        where: { id: bad.id },
+        data: { timezone: 'Mars/Olympus_Mons' },
+      });
+      const scheduler = app.get(JobAlertScheduler);
+      expect(await scheduler.tick(new Date(new Date(good.nextRunAt).getTime() + 1000))).toBe(1);
+      await searches.drain();
+      const runs = await prisma.jobSearchRun.findMany({ where: { userId: user.userId } });
+      expect(runs.map((r) => r.alertId)).toEqual([good.id]);
+      const stored = await prisma.jobSearchAlert.findUniqueOrThrow({ where: { id: bad.id } });
+      expect(stored.nextRunAt).toBeNull();
+    });
+
+    it('finishes a run left unfinished by an API restart, without duplicates', async () => {
+      await createReviewedResume(user, parsing, 'Angular Resume', ANGULAR_CONTENT);
+      const alert = await createAlert();
+      // A run the previous process had started (status RUNNING) but never finished.
+      const orphan = await prisma.jobSearchRun.create({
+        data: { alertId: alert.id, userId: user.userId, trigger: 'SCHEDULED' },
+      });
+      // On startup the dispatcher re-queues unfinished runs.
+      await (
+        searches as unknown as { onApplicationBootstrap(): Promise<void> }
+      ).onApplicationBootstrap();
+      await searches.drain();
+      const finished = await prisma.jobSearchRun.findUniqueOrThrow({ where: { id: orphan.id } });
+      expect(finished.status).toBe('COMPLETED');
+      expect(finished.recommendationsCreated).toBeGreaterThan(0);
+      const recommendations = await prisma.jobRecommendation.count({
+        where: { userId: user.userId },
+      });
+      // Re-queuing again (another restart) adds nothing: the run is already complete.
+      await (
+        searches as unknown as { onApplicationBootstrap(): Promise<void> }
+      ).onApplicationBootstrap();
+      await searches.drain();
+      expect(await prisma.jobRecommendation.count({ where: { userId: user.userId } })).toBe(
+        recommendations,
+      );
+    });
+  });
+
   describe('security', () => {
     it("never exposes another user's alerts, runs, recommendations or notifications", async () => {
       await createReviewedResume(user, parsing, 'Angular Resume', ANGULAR_CONTENT);
@@ -599,6 +682,487 @@ describe('Job discovery with failing providers (e2e)', () => {
     const result = await run(user);
     expect(result.status).toBe('FAILED');
     expect(result.errorMessage).toMatch(/No job sources are configured/);
-    expect((await user.get('/job-sources').expect(200)).body).toEqual([]);
+    expect((await user.get('/job-sources').expect(200)).body).toEqual(NOT_INTEGRATED);
+  });
+});
+
+describe('Job discovery from a real source in production mode (e2e)', () => {
+  // Responses shaped like Adzuna's documented search results, served by an injected fetch:
+  // the real adapter code runs end to end, without calling the live API.
+  const REAL_DESCRIPTION = `We are hiring a Frontend Developer for our analytics product.
+
+Responsibilities:
+- Build reusable Angular components for our dashboards
+
+Requirements:
+- 2+ years of professional experience in frontend development
+- Strong experience with Angular, TypeScript and RxJS`;
+  const ads = [
+    {
+      id: 5001,
+      title: '<strong>Frontend</strong> Developer',
+      description: 'Short snippet…',
+      full_description: REAL_DESCRIPTION,
+      created: new Date(Date.now() - 86_400_000).toISOString(),
+      redirect_url: 'https://www.adzuna.in/details/5001',
+      location: { display_name: 'Bangalore, Karnataka' },
+      company: { display_name: 'Real Analytics Pvt Ltd' },
+      contract_time: 'full_time',
+    },
+    // An ad without a company is skipped (never given an invented one).
+    {
+      id: 5002,
+      title: 'Frontend Developer',
+      description: REAL_DESCRIPTION,
+      location: { display_name: 'Bangalore' },
+    },
+    // A duplicate of the first ad in the same response.
+    { id: 5001, title: 'Frontend Developer', description: REAL_DESCRIPTION },
+  ];
+  const fetchCalls: string[] = [];
+  const fakeFetch = (url: string) => {
+    fetchCalls.push(url);
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ results: ads }),
+    });
+  };
+
+  let app: NestExpressApplication;
+  let prisma: PrismaService;
+  let parsing: ParsingDispatcher;
+  let searches: JobSearchDispatcher;
+
+  beforeAll(async () => {
+    const adzuna = new AdzunaJobSourceAdapter(
+      { appId: 'id', appKey: 'key', country: 'in', maxDaysOld: 30, dailyRequestLimit: 200 },
+      fakeFetch,
+    );
+    ({ app, prisma } = await createTestApp({
+      overrides: [
+        // The dev adapter is registered too: production mode must still never use it.
+        [JOB_SOURCE_ADAPTERS, [new DevJobSourceAdapter(), adzuna]],
+        [SampleDataPolicy, { allowSampleData: false }],
+      ],
+    }));
+    parsing = app.get(ParsingDispatcher);
+    searches = app.get(JobSearchDispatcher);
+  });
+
+  beforeEach(async () => {
+    await resetDatabase(prisma);
+    fetchCalls.length = 0;
+  });
+
+  afterEach(async () => {
+    await searches.drain();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('discovers, analyses, matches and recommends real jobs — never sample data', async () => {
+    const user = await signUp(app, 'Thanga Sri');
+    const resume = await createReviewedResume(user, parsing, 'Angular Resume', ANGULAR_CONTENT);
+    const alert = (await user.post('/job-alerts', ALERT).expect(201)).body;
+
+    const sources = (await user.get('/job-sources').expect(200)).body;
+    expect(sources).toEqual([
+      expect.objectContaining({
+        key: 'dev',
+        isDevelopment: true,
+        isEnabled: false,
+        status: 'DEVELOPMENT_ONLY',
+      }),
+      expect.objectContaining({
+        key: 'adzuna',
+        isDevelopment: false,
+        isEnabled: true,
+        status: 'ACTIVE',
+        attribution: { label: 'Jobs by Adzuna', url: 'https://www.adzuna.in' },
+      }),
+      ...NOT_INTEGRATED,
+    ]);
+    // Never any credential in the source list.
+    expect(JSON.stringify(sources)).not.toMatch(/"key"\s*:\s*"key"|app_key|appKey/);
+
+    await user.post(`/job-alerts/${alert.id}/run`).expect(202);
+    await searches.drain();
+    const [run] = (await user.get(`/job-alerts/${alert.id}/runs`).expect(200)).body;
+    expect(run).toMatchObject({
+      status: 'COMPLETED',
+      jobsFound: 1,
+      jobsCreated: 1,
+      recommendationsCreated: 1,
+    });
+    expect(run.sources).toEqual([
+      {
+        sourceKey: 'adzuna',
+        sourceName: 'Adzuna',
+        isDevelopment: false,
+        status: 'OK',
+        returned: 2,
+        found: 1,
+        error: null,
+      },
+    ]);
+    expect(new URL(fetchCalls[0]!).searchParams.get('what')).toBe('Frontend Developer');
+
+    // Persisted as a real job, analysed with the same engine as a manually added job.
+    const jobs = await prisma.job.findMany({ where: { userId: user.userId } });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({
+      title: 'Frontend Developer',
+      companyName: 'Real Analytics Pvt Ltd',
+      source: 'Adzuna',
+      jobUrl: 'https://www.adzuna.in/details/5001',
+      origin: 'DISCOVERED',
+      isSampleData: false,
+    });
+    const detail = (await user.get(`/jobs/${jobs[0]!.id}`).expect(200)).body;
+    expect(detail).toMatchObject({ analysisStatus: 'COMPLETED', isSampleData: false });
+    expect(detail.recommendation.resumeVersionId).toBe(resume.versionId);
+
+    const recs = (await user.get('/recommendations').expect(200)).body;
+    expect(recs).toHaveLength(1);
+    expect(recs[0]).toMatchObject({
+      job: {
+        title: 'Frontend Developer',
+        companyName: 'Real Analytics Pvt Ltd',
+        isSampleData: false,
+      },
+      source: {
+        key: 'adzuna',
+        isDevelopment: false,
+        attribution: { label: 'Jobs by Adzuna', url: 'https://www.adzuna.in' },
+      },
+      resume: { resumeVersionId: resume.versionId },
+    });
+    expect(recs[0].matchScore).toBeGreaterThanOrEqual(75);
+
+    // A second run adds no duplicate jobs or recommendations.
+    await user.post(`/job-alerts/${alert.id}/run`).expect(202);
+    await searches.drain();
+    expect(await prisma.job.count({ where: { userId: user.userId } })).toBe(1);
+    expect(await prisma.jobRecommendation.count({ where: { userId: user.userId } })).toBe(1);
+  });
+
+  it('never returns sample-data recommendations in production, even if they exist', async () => {
+    const user = await signUp(app, 'Thanga Sri');
+    // Simulate legacy sample data already in the database.
+    const sampleJob = await prisma.job.create({
+      data: {
+        userId: user.userId,
+        title: 'Frontend Developer',
+        companyName: 'Northwind Analytics (sample)',
+        description: 'Sample posting (development fixture).',
+        normalizedDescription: 'Sample posting (development fixture).',
+        contentHash: 'f'.repeat(64),
+        origin: 'DISCOVERED',
+        isSampleData: true,
+        inLibrary: false,
+      },
+    });
+    const sampleRec = await prisma.jobRecommendation.create({
+      data: {
+        userId: user.userId,
+        jobId: sampleJob.id,
+        matchScore: 90,
+        rank: 90,
+        reason: 'sample',
+      },
+    });
+    expect((await user.get('/recommendations?status=ALL').expect(200)).body).toEqual([]);
+    await user.get(`/recommendations/${sampleRec.id}`).expect(404);
+    await user.post(`/recommendations/${sampleRec.id}/save`).expect(404);
+    const dashboard = (await user.get('/dashboard/summary').expect(200)).body;
+    expect(dashboard.recommendations.new).toBe(0);
+  });
+});
+
+describe('Job discovery across several real sources (e2e)', () => {
+  // Responses shaped like each provider's documented API, served by one injected fetch: the
+  // real adapters run end to end without any live call.
+  const DESCRIPTION = `We are hiring a Frontend Developer for our analytics product.
+
+Responsibilities:
+- Build reusable Angular components for our dashboards
+
+Requirements:
+- 2+ years of professional experience in frontend development
+- Strong experience with Angular, TypeScript and RxJS`;
+  const escaped = DESCRIPTION.replace(/&/g, '&amp;')
+    .split('\n')
+    .map((line) => `&lt;p&gt;${line}&lt;/p&gt;`)
+    .join('');
+  const yesterday = new Date(Date.now() - 86_400_000);
+  const greenhouseJob = {
+    id: 77,
+    title: 'Frontend Developer',
+    absolute_url: 'https://boards.greenhouse.io/realco/jobs/77',
+    location: { name: 'Bengaluru, India' },
+    first_published: yesterday.toISOString(),
+    content: escaped,
+  };
+  const greenhouseBoard = { jobs: [greenhouseJob] };
+  const routes: [string, { status?: number; body?: unknown }][] = [
+    // The employer's own Greenhouse board lists the job…
+    ['https://boards-api.greenhouse.io/v1/boards/realco/jobs', { body: greenhouseBoard }],
+    // …and Adzuna lists the same job: the employer's posting must win.
+    [
+      'https://api.adzuna.com/',
+      {
+        body: {
+          results: [
+            {
+              id: 9001,
+              title: 'Frontend Developer',
+              full_description: DESCRIPTION,
+              created: yesterday.toISOString(),
+              redirect_url: 'https://www.adzuna.in/details/9001',
+              location: { display_name: 'Bangalore, Karnataka' },
+              company: { display_name: 'Real Analytics' },
+            },
+          ],
+        },
+      },
+    ],
+    [
+      'https://api.lever.co/v0/postings/leverco',
+      {
+        body: [
+          {
+            id: 'abc-123',
+            text: 'Frontend Developer (Angular)',
+            hostedUrl: 'https://jobs.lever.co/leverco/abc-123',
+            workplaceType: 'remote',
+            categories: { location: 'Remote - India', commitment: 'Full-time' },
+            createdAt: yesterday.getTime(),
+            descriptionPlain: DESCRIPTION,
+          },
+        ],
+      },
+    ],
+    // Remotive is down: the other sources still produce recommendations.
+    ['https://remotive.com/', { status: 500 }],
+  ];
+  const fetchCalls: string[] = [];
+  const fakeFetch = (url: string) => {
+    fetchCalls.push(url);
+    const route = routes.find(([prefix]) => url.startsWith(prefix));
+    const status = route?.[1].status ?? (route ? 200 : 404);
+    return Promise.resolve({
+      ok: status < 400,
+      status,
+      json: () => Promise.resolve(route?.[1].body ?? {}),
+    });
+  };
+
+  let app: NestExpressApplication;
+  let prisma: PrismaService;
+  let parsing: ParsingDispatcher;
+  let searches: JobSearchDispatcher;
+  // Board responses are cached for an hour; each test starts past that.
+  let clock = Date.now();
+
+  beforeAll(async () => {
+    const adapters = [
+      new AdzunaJobSourceAdapter(
+        { appId: 'id', appKey: 'key', country: 'in', maxDaysOld: 30, dailyRequestLimit: 200 },
+        fakeFetch,
+      ),
+      new RemotiveJobSourceAdapter({ dailyRequestLimit: 4 }, fakeFetch),
+      new GreenhouseJobSourceAdapter(
+        { boards: [{ id: 'realco', name: 'Real Analytics' }] },
+        fakeFetch,
+        () => clock,
+      ),
+      new LeverJobSourceAdapter(
+        { sites: [{ id: 'leverco', name: 'Lever Co' }], region: 'global' },
+        fakeFetch,
+        () => clock,
+      ),
+    ];
+    ({ app, prisma } = await createTestApp({
+      overrides: [
+        [JOB_SOURCE_ADAPTERS, adapters],
+        [SampleDataPolicy, { allowSampleData: false }],
+      ],
+    }));
+    parsing = app.get(ParsingDispatcher);
+    searches = app.get(JobSearchDispatcher);
+  });
+
+  beforeEach(async () => {
+    await resetDatabase(prisma);
+    fetchCalls.length = 0;
+    clock += 2 * 60 * 60 * 1000;
+    greenhouseBoard.jobs = [greenhouseJob];
+  });
+
+  afterEach(async () => {
+    await searches.drain();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('replaces a job search service’s copy with the employer’s posting when it appears later', async () => {
+    const user = await signUp(app, 'Thanga Sri');
+    await createReviewedResume(user, parsing, 'Angular Resume', ANGULAR_CONTENT);
+    const alert = (await user.post('/job-alerts', ALERT).expect(201)).body;
+
+    greenhouseBoard.jobs = []; // not on the employer's board yet
+    await user.post(`/job-alerts/${alert.id}/run`).expect(202);
+    await searches.drain();
+    const job = await prisma.job.findFirstOrThrow({
+      where: { userId: user.userId, companyName: 'Real Analytics' },
+    });
+    expect([job.source, job.jobUrl]).toEqual(['Adzuna', 'https://www.adzuna.in/details/9001']);
+
+    clock += 2 * 60 * 60 * 1000;
+    greenhouseBoard.jobs = [greenhouseJob];
+    await user.post(`/job-alerts/${alert.id}/run`).expect(202);
+    await searches.drain();
+    const [latest] = (await user.get(`/job-alerts/${alert.id}/runs`).expect(200)).body;
+    expect(latest).toMatchObject({ jobsCreated: 0, duplicates: 1, recommendationsCreated: 0 });
+    const upgraded = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
+    expect([upgraded.source, upgraded.jobUrl]).toEqual([
+      'Greenhouse',
+      'https://boards.greenhouse.io/realco/jobs/77',
+    ]);
+    expect(await prisma.job.count({ where: { userId: user.userId } })).toBe(2);
+    expect(await prisma.jobRecommendation.count({ where: { userId: user.userId } })).toBe(2);
+  });
+
+  it('searches every source with the profile-based strategy, keeps the employer posting and tolerates a failing source', async () => {
+    const user = await signUp(app, 'Thanga Sri');
+    await user
+      .put('/profile', {
+        fullName: 'Thanga Sri',
+        phone: null,
+        location: 'Chennai',
+        country: 'India',
+        linkedinUrl: null,
+        githubUrl: null,
+        portfolioUrl: null,
+        preferredRoles: ['Angular Developer'],
+        preferredLocations: [],
+        workModes: [],
+        salaryMin: null,
+        salaryMax: null,
+        salaryCurrency: null,
+        employmentTypes: [],
+        noticePeriod: null,
+        workAuthorization: null,
+        headline: null,
+        summary: null,
+        yearsOfExperience: 3,
+        currentJobTitle: null,
+        currentCompany: null,
+        previousJobTitles: [],
+        previousCompanies: [],
+      })
+      .expect(200);
+    const resume = await createReviewedResume(user, parsing, 'Angular Resume', ANGULAR_CONTENT);
+    const alert = (await user.post('/job-alerts', ALERT).expect(201)).body;
+
+    await user.post(`/job-alerts/${alert.id}/run`).expect(202);
+    await searches.drain();
+    const [run] = (await user.get(`/job-alerts/${alert.id}/runs`).expect(200)).body;
+
+    expect(run).toMatchObject({
+      status: 'PARTIAL',
+      errorMessage: 'Some job sources could not be searched.',
+      jobsDiscovered: 3,
+      jobsFound: 3,
+      jobsCreated: 2,
+      duplicates: 1,
+      jobsAnalyzed: 2,
+      recommendationsCreated: 2,
+      searchStrategy: {
+        keywords: ['Frontend Developer', 'Angular Developer'],
+        alternateTitles: ['Angular Developer'],
+        locations: ['Bangalore'],
+        remotePreference: 'ANY',
+      },
+    });
+    expect(run.sources).toEqual([
+      expect.objectContaining({ sourceKey: 'adzuna', status: 'OK', returned: 1, found: 1 }),
+      {
+        sourceKey: 'remotive',
+        sourceName: 'Remotive',
+        isDevelopment: false,
+        status: 'FAILED',
+        returned: 0,
+        found: 0,
+        error: 'Remotive returned an error (HTTP 500).',
+      },
+      expect.objectContaining({ sourceKey: 'greenhouse', status: 'OK', returned: 1, found: 1 }),
+      expect.objectContaining({ sourceKey: 'lever', status: 'OK', returned: 1, found: 1 }),
+    ]);
+    // The profile's alternate title was searched too (keywords × the alert's location).
+    const whats = fetchCalls
+      .filter((u) => u.startsWith('https://api.adzuna.com/'))
+      .map((u) => new URL(u).searchParams.get('what'));
+    expect(whats).toEqual(['Frontend Developer', 'Angular Developer']);
+
+    // One job per real posting; the cross-listed one points at the employer's posting.
+    const jobs = await prisma.job.findMany({
+      where: { userId: user.userId },
+      orderBy: { companyName: 'asc' },
+    });
+    expect(jobs.map((j) => [j.companyName, j.source, j.jobUrl, j.isSampleData])).toEqual([
+      ['Lever Co', 'Lever', 'https://jobs.lever.co/leverco/abc-123', false],
+      ['Real Analytics', 'Greenhouse', 'https://boards.greenhouse.io/realco/jobs/77', false],
+    ]);
+    const discovered = await prisma.discoveredJob.findMany({
+      where: { userId: user.userId },
+      include: { source: true },
+      orderBy: { discoveredFrom: 'asc' },
+    });
+    expect(discovered.map((d) => [d.source.key, d.outcome, d.discoveredFrom])).toEqual([
+      ['adzuna', 'DUPLICATE', 'Adzuna search API (IN)'],
+      ['greenhouse', 'RECOMMENDED', 'Greenhouse job board: realco'],
+      ['lever', 'RECOMMENDED', 'Lever job site: leverco'],
+    ]);
+    const realco = jobs.find((j) => j.companyName === 'Real Analytics')!;
+    expect(discovered[0]!.jobId).toBe(realco.id);
+
+    const recs = (await user.get('/recommendations').expect(200)).body;
+    expect(recs).toHaveLength(2);
+    for (const r of recs) {
+      expect(r.matchScore).toBeGreaterThanOrEqual(75);
+      expect(r.resume.resumeVersionId).toBe(resume.versionId);
+      expect(r.job.isSampleData).toBe(false);
+    }
+    const lever = recs.find((r: { source: { key: string } }) => r.source.key === 'lever');
+    expect(lever).toMatchObject({
+      job: { workMode: 'REMOTE', location: 'Remote - India', postedAt: yesterday.toISOString() },
+      source: { name: 'Lever', discoveredFrom: 'Lever job site: leverco' },
+    });
+
+    // Filters narrow the list on the server.
+    const bySource = (await user.get('/recommendations?source=greenhouse').expect(200)).body;
+    expect(bySource.map((r: { job: { companyName: string } }) => r.job.companyName)).toEqual([
+      'Real Analytics',
+    ]);
+    const remote = (await user.get('/recommendations?workMode=REMOTE').expect(200)).body;
+    expect(remote).toHaveLength(1);
+    expect((await user.get('/recommendations?company=lever').expect(200)).body).toHaveLength(1);
+    expect((await user.get('/recommendations?title=backend').expect(200)).body).toHaveLength(0);
+    expect((await user.get('/recommendations?location=bengaluru').expect(200)).body).toHaveLength(
+      1,
+    );
+    expect(await user.get('/recommendations?minScore=101').expect(400));
+
+    // A second run (Remotive still down) adds nothing new.
+    await user.post(`/job-alerts/${alert.id}/run`).expect(202);
+    await searches.drain();
+    expect(await prisma.job.count({ where: { userId: user.userId } })).toBe(2);
+    expect(await prisma.jobRecommendation.count({ where: { userId: user.userId } })).toBe(2);
   });
 });

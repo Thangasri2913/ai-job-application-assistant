@@ -61,6 +61,11 @@ function JobRow({ job }: { job: JobSummary }) {
           {job.title}
         </Link>
         <div className="text-sm text-muted">{job.companyName}</div>
+        {job.origin === 'DISCOVERED' ? (
+          <Badge tone="primary" className="mt-1">
+            Discovered by a job alert{job.isSampleData ? ' · sample data' : ''}
+          </Badge>
+        ) : null}
       </td>
       <td className="py-3 pr-3 whitespace-nowrap">
         {job.bestMatch ? (

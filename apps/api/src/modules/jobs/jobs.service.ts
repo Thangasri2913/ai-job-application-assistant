@@ -315,7 +315,24 @@ export class JobsService {
         origin: true,
         inLibrary: true,
         currentAnalysisId: true,
+        source: true,
       },
+    });
+  }
+
+  /**
+   * Points a discovered job at the employer's own posting once an employer job board lists
+   * it (the first copy may have come from a job search service). Jobs the user added are
+   * never changed.
+   */
+  async useOriginalPosting(
+    userId: string,
+    jobId: string,
+    posting: { jobUrl: string; source: string },
+  ): Promise<void> {
+    await this.prisma.job.updateMany({
+      where: { id: jobId, userId, origin: 'DISCOVERED' },
+      data: posting,
     });
   }
 

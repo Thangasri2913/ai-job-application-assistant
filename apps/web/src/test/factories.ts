@@ -384,6 +384,8 @@ export function applicationDetail(overrides: Partial<ApplicationDetail> = {}): A
     ...applicationSummary(),
     applicationUrl: null,
     rejectionReason: null,
+    rejectionCategory: null,
+    offerDetails: null,
     job: {
       id: 'j1',
       title: 'Frontend Developer',
@@ -448,6 +450,7 @@ export const timelineEvents: ApplicationTimelineEvent[] = [
     at: '2026-10-11T10:00:00.000Z',
     fromStatus: 'SAVED',
     toStatus: 'APPLIED',
+    occurredOn: null,
     note: 'Submitted through company website',
   },
   {

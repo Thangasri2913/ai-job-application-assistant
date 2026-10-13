@@ -70,4 +70,33 @@ describe('validateEnv', () => {
     ).toEqual(['https://app.example']);
     expect(validateEnv({ ...valid, AI_PROVIDER: 'mock' }).AI_PROVIDER).toBe('mock');
   });
+
+  it('reads the optional Adzuna job source settings', () => {
+    const env = validateEnv(valid);
+    expect(env).toMatchObject({
+      ADZUNA_COUNTRY: 'in',
+      ADZUNA_MAX_DAYS_OLD: 30,
+      ADZUNA_DAILY_REQUEST_LIMIT: 200,
+    });
+    expect(env.ADZUNA_APP_ID).toBeUndefined();
+    expect(() => validateEnv({ ...valid, ADZUNA_COUNTRY: 'xx' })).toThrow(/ADZUNA_COUNTRY/);
+    expect(validateEnv({ ...valid, JOB_SOURCES: 'adzuna, dev' }).JOB_SOURCES).toEqual([
+      'adzuna',
+      'dev',
+    ]);
+  });
+
+  it('reads the Remotive, Greenhouse and Lever settings', () => {
+    expect(validateEnv(valid)).toMatchObject({
+      REMOTIVE_DAILY_REQUEST_LIMIT: 4,
+      GREENHOUSE_BOARDS: '',
+      LEVER_SITES: '',
+      LEVER_REGION: 'global',
+    });
+    // Remotive asks for no more than 4 requests a day.
+    expect(() => validateEnv({ ...valid, REMOTIVE_DAILY_REQUEST_LIMIT: '10' })).toThrow(
+      /REMOTIVE_DAILY_REQUEST_LIMIT/,
+    );
+    expect(() => validateEnv({ ...valid, LEVER_REGION: 'us' })).toThrow(/LEVER_REGION/);
+  });
 });

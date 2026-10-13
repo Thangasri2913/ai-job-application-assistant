@@ -70,6 +70,52 @@ export const envSchema = z.object({
   JOB_ALERT_SCHEDULER_ENABLED: booleanString.default(true),
   JOB_ALERT_SCHEDULER_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
 
+  /**
+   * Adzuna job search API (JOB_SOURCES=adzuna), https://developer.adzuna.com. Credentials come
+   * from registering an application with Adzuna; they are secrets and stay in the environment.
+   */
+  ADZUNA_APP_ID: z.string().min(1).optional(),
+  ADZUNA_APP_KEY: z.string().min(1).optional(),
+  /** Adzuna country code (ISO 3166-1 alpha-2), e.g. in, gb, us. */
+  ADZUNA_COUNTRY: z
+    .enum([
+      'us',
+      'sg',
+      'es',
+      'at',
+      'br',
+      'in',
+      'nz',
+      'be',
+      'gb',
+      'mx',
+      'pl',
+      'it',
+      'ch',
+      'de',
+      'nl',
+      'fr',
+      'ca',
+      'za',
+      'au',
+    ])
+    .default('in'),
+  /** Only ads up to this many days old. */
+  ADZUNA_MAX_DAYS_OLD: z.coerce.number().int().min(1).max(90).default(30),
+  /** Requests per day this server may make (Adzuna's default allowance is 250/day). */
+  ADZUNA_DAILY_REQUEST_LIMIT: z.coerce.number().int().min(1).default(200),
+  /** Remotive public API (JOB_SOURCES=remotive): feed requests per day; Remotive asks for ≤ 4. */
+  REMOTIVE_DAILY_REQUEST_LIMIT: z.coerce.number().int().min(1).max(4).default(4),
+  /**
+   * Greenhouse employer job boards to read (JOB_SOURCES=greenhouse): comma-separated board
+   * tokens, each optionally "token=Employer name", e.g. "acme,globex=Globex Corp". Public data.
+   */
+  GREENHOUSE_BOARDS: z.string().default(''),
+  /** Lever employer job sites to read (JOB_SOURCES=lever), same format as GREENHOUSE_BOARDS. */
+  LEVER_SITES: z.string().default(''),
+  /** Lever data centre of the configured sites. */
+  LEVER_REGION: z.enum(['global', 'eu']).default('global'),
+
   RESUME_MAX_UPLOAD_BYTES: z.coerce
     .number()
     .int()

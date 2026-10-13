@@ -92,6 +92,9 @@ export const AuditAction = {
   JOB_RECOMMENDATION_CREATED: 'job_recommendation.created',
   JOB_RECOMMENDATION_SAVED: 'job_recommendation.saved',
   JOB_RECOMMENDATION_DISMISSED: 'job_recommendation.dismissed',
+
+  CAREER_INSIGHTS_REQUESTED: 'career_insights.requested',
+  CAREER_INSIGHTS_GENERATED: 'career_insights.generated',
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

@@ -7,8 +7,9 @@ const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!testDatabaseUrl)
   throw new Error('TEST_DATABASE_URL must be set for e2e tests (see .env.example).');
 
-// Never point integration tests at the development database.
+// Never point integration tests at the development (or production) database.
 process.env.DATABASE_URL = testDatabaseUrl;
+process.env.DIRECT_DATABASE_URL = testDatabaseUrl;
 process.env.NODE_ENV = 'test';
 process.env.LOG_LEVEL = 'silent';
 process.env.SWAGGER_ENABLED = 'false';

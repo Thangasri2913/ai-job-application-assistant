@@ -34,6 +34,8 @@ import {
   type RemotePreference,
   SENIORITY_LEVELS,
   type SeniorityLevel,
+  WORK_MODES,
+  type WorkMode,
 } from '@job-assist/shared';
 import { RequiredText, StringList } from '../../../common/validation/decorators.js';
 
@@ -162,4 +164,40 @@ export class ListRecommendationsQueryDto {
   @IsOptional()
   @Matches(/^[0-9a-f-]{36}$/i, { message: 'alertId must be a UUID.' })
   alertId?: string;
+
+  @ApiPropertyOptional({ description: 'Job source key, e.g. adzuna, greenhouse.' })
+  @IsOptional()
+  @Matches(/^[a-z0-9-]{1,40}$/, { message: 'source must be a job source key.' })
+  source?: string;
+
+  @ApiPropertyOptional({ enum: WORK_MODES })
+  @IsOptional()
+  @IsIn(WORK_MODES)
+  workMode?: WorkMode;
+
+  @ApiPropertyOptional({ minimum: 0, maximum: 100, description: 'Minimum match score.' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  minScore?: number;
+
+  @ApiPropertyOptional({ description: 'Text the job title contains (case-insensitive).' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  title?: string;
+
+  @ApiPropertyOptional({ description: 'Text the company name contains (case-insensitive).' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  company?: string;
+
+  @ApiPropertyOptional({ description: 'Text the location contains (case-insensitive).' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  location?: string;
 }

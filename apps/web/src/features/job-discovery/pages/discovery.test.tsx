@@ -11,6 +11,7 @@ import { mockApi } from '../../../test/api-mock';
 import {
   analysisResult,
   jobDetail,
+  jobSummary,
   matchesResponse,
   meOk,
   recommendationItem,
@@ -23,7 +24,13 @@ const devSource: JobSourceItem = {
   kind: 'DEVELOPMENT',
   isDevelopment: true,
   isEnabled: true,
+  status: 'ACTIVE',
   description: 'Built-in fixture postings for development. Not real job listings.',
+  postingOrigin: 'SAMPLE',
+  attribution: null,
+  lastSuccessAt: null,
+  lastFailureAt: null,
+  lastError: null,
 };
 
 const run = (o: Partial<JobSearchRunItem> = {}): JobSearchRunItem => ({
@@ -31,11 +38,15 @@ const run = (o: Partial<JobSearchRunItem> = {}): JobSearchRunItem => ({
   alertId: 'al1',
   trigger: 'MANUAL',
   status: 'COMPLETED',
+  jobsDiscovered: 8,
   jobsFound: 6,
   jobsCreated: 2,
   jobsSkipped: 4,
   belowThreshold: 3,
   recommendationsCreated: 2,
+  duplicates: 1,
+  jobsAnalyzed: 2,
+  searchStrategy: null,
   sources: [
     {
       sourceKey: 'dev',
@@ -100,7 +111,13 @@ const recommendation = (o: Partial<JobRecommendationItem> = {}): JobRecommendati
     postedAt: '2026-10-10T09:00:00.000Z',
     isSampleData: true,
   },
-  source: { key: 'dev', name: 'Development sample jobs', isDevelopment: true },
+  source: {
+    key: 'dev',
+    name: 'Development sample jobs',
+    isDevelopment: true,
+    attribution: null,
+    discoveredFrom: 'Development sample fixtures',
+  },
   alert: { id: 'al1', name: 'Frontend Developer in Bangalore' },
   createdAt: '2026-10-11T09:00:05.000Z',
   viewedAt: null,
@@ -151,16 +168,20 @@ describe('Recommended jobs', () => {
     const api = mockApi({
       'GET /auth/me': meOk,
       'GET /notifications': { body: noNotifications },
-      'GET /job-sources': { body: [] },
+      // A configured, non-development source: discovery is available, there are just no results.
+      'GET /job-sources': {
+        body: [{ ...devSource, key: 'api', name: 'Job API', kind: 'API', isDevelopment: false }],
+      },
       'GET /job-alerts': { body: [alert()] },
       'GET /recommendations?status=ACTIVE': { body: [] },
       'GET /recommendations?status=SAVED': { body: [] },
       'GET /recommendations?status=SAVED&alertId=al1': { body: [] },
     });
     renderApp('/recommendations');
-    expect(await screen.findByText('No recommendations yet')).toBeInTheDocument();
+    // The alert has run: the sources were searched but nothing reached the threshold.
+    expect(await screen.findByText('No matching real jobs were found.')).toBeInTheDocument();
     expect(screen.queryByRole('note')).not.toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByLabelText('Status'), 'SAVED');
+    await userEvent.selectOptions(screen.getByLabelText('Show'), 'SAVED');
     await userEvent.selectOptions(await screen.findByLabelText('Alert'), 'al1');
     await waitFor(() =>
       expect(api.find('GET', '/recommendations?status=SAVED&alertId=al1')).toHaveLength(1),
@@ -241,7 +262,7 @@ describe('Job alerts', () => {
       'GET /job-alerts': { body: [] },
     });
     renderApp('/job-alerts');
-    expect(await screen.findByText(/No job sources are configured/)).toBeInTheDocument();
+    expect(await screen.findByText(/No job sources are configured yet/)).toBeInTheDocument();
   });
 
   it('shows run history with counts and failed sources', async () => {
@@ -281,10 +302,164 @@ describe('Job alerts', () => {
     expect(
       within(partial!).getByText('Some job sources could not be searched.'),
     ).toBeInTheDocument();
-    expect(within(partial!).getByText('Other API: failed')).toBeInTheDocument();
+    expect(
+      within(partial!).getByText('Other API: failed — The job source could not be reached.'),
+    ).toBeInTheDocument();
+    expect(within(partial!).getByText('Duplicates').nextSibling).toHaveTextContent('1');
+    expect(within(partial!).getByText('Analysed').nextSibling).toHaveTextContent('2');
+    expect(within(partial!).getByText('Discovered').nextSibling).toHaveTextContent('8');
     expect(
       within(partial!).getByText('Development sample jobs (sample data): 6 found'),
     ).toBeInTheDocument();
+  });
+});
+
+describe('Discovery diagnostics in the UI', () => {
+  it('explains that discovery is unavailable when the server has no job source', async () => {
+    mockApi({
+      'GET /auth/me': meOk,
+      'GET /notifications': { body: noNotifications },
+      'GET /job-sources': { body: [] },
+      'GET /job-alerts': { body: [] },
+      'GET /recommendations?status=ACTIVE': { body: [] },
+    });
+    renderApp('/recommendations');
+    expect(await screen.findByText('No job sources are configured yet.')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Job alerts can’t find jobs until a supported job source is configured/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Sample data')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Add a job' })).toHaveAttribute('href', '/jobs/new');
+  });
+
+  it('shows why the last run failed or found nothing to recommend', async () => {
+    mockApi({
+      'GET /auth/me': meOk,
+      'GET /notifications': { body: noNotifications },
+      'GET /job-sources': { body: [] },
+      'GET /job-alerts': {
+        body: [
+          alert({
+            id: 'al1',
+            name: 'Failed alert',
+            lastRun: run({
+              status: 'FAILED',
+              jobsFound: 0,
+              recommendationsCreated: 0,
+              errorMessage:
+                'No job sources are configured on this server, so alerts can’t find jobs yet.',
+              sources: [],
+            }),
+          }),
+          alert({
+            id: 'al2',
+            name: 'Strict alert',
+            lastRun: run({
+              jobsFound: 4,
+              belowThreshold: 4,
+              jobsCreated: 0,
+              recommendationsCreated: 0,
+            }),
+          }),
+        ],
+      },
+    });
+    renderApp('/job-alerts');
+    const list = await screen.findByRole('list', { name: 'Job alerts' });
+    const failed = within(list)
+      .getAllByRole('listitem')
+      .find((li) => li.textContent?.includes('Failed alert'))!;
+    expect(within(failed).getByRole('alert')).toHaveTextContent(
+      /No job sources are configured on this server/,
+    );
+    const strict = within(list)
+      .getAllByRole('listitem')
+      .find((li) => li.textContent?.includes('Strict alert'))!;
+    expect(
+      within(strict).getByText(
+        'The last search found 4 jobs, but none reached your minimum match score.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('labels jobs discovered by an alert in the Jobs list', async () => {
+    mockApi({
+      'GET /auth/me': meOk,
+      'GET /notifications': { body: noNotifications },
+      'GET /jobs?status=ACTIVE': {
+        body: [
+          jobSummary({ id: 'j1', title: 'Manual job' }),
+          jobSummary({ id: 'j2', title: 'Found job', origin: 'DISCOVERED', isSampleData: true }),
+        ],
+      },
+    });
+    renderApp('/jobs');
+    const found = (await screen.findByRole('link', { name: 'Found job' })).closest('tr')!;
+    expect(within(found).getByText('Discovered by a job alert · sample data')).toBeInTheDocument();
+    const manual = screen.getByRole('link', { name: 'Manual job' }).closest('tr')!;
+    expect(within(manual).queryByText(/Discovered by a job alert/)).toBeNull();
+  });
+});
+
+describe('Real job recommendations', () => {
+  it('shows a real job with its posting link and the source attribution, without a sample label', async () => {
+    mockApi({
+      'GET /auth/me': meOk,
+      'GET /notifications': { body: noNotifications },
+      'GET /job-sources': {
+        body: [
+          {
+            key: 'adzuna',
+            name: 'Adzuna',
+            kind: 'API',
+            isDevelopment: false,
+            isEnabled: true,
+            status: 'ACTIVE',
+            description: 'Real job ads from the Adzuna job search API (IN).',
+            postingOrigin: 'AGGREGATOR',
+            attribution: { label: 'Jobs by Adzuna', url: 'https://www.adzuna.in' },
+            lastSuccessAt: null,
+            lastFailureAt: null,
+            lastError: null,
+          },
+        ],
+      },
+      'GET /job-alerts': { body: [alert()] },
+      'GET /recommendations?status=ACTIVE': {
+        body: [
+          recommendation({
+            job: {
+              ...recommendation().job,
+              companyName: 'Real Analytics Pvt Ltd',
+              jobUrl: 'https://www.adzuna.in/details/5001',
+              isSampleData: false,
+            },
+            source: {
+              key: 'adzuna',
+              name: 'Adzuna',
+              isDevelopment: false,
+              attribution: { label: 'Jobs by Adzuna', url: 'https://www.adzuna.in' },
+              discoveredFrom: 'Adzuna search API (IN)',
+            },
+          }),
+        ],
+      },
+    });
+    renderApp('/recommendations');
+    const card = within(await screen.findByRole('list', { name: 'Recommended jobs' })).getAllByRole(
+      'listitem',
+    )[0]!;
+    expect(within(card).getByText(/Real Analytics Pvt Ltd/)).toBeInTheDocument();
+    expect(within(card).getByRole('link', { name: 'View posting' })).toHaveAttribute(
+      'href',
+      'https://www.adzuna.in/details/5001',
+    );
+    expect(within(card).getByRole('link', { name: 'Jobs by Adzuna' })).toHaveAttribute(
+      'href',
+      'https://www.adzuna.in',
+    );
+    expect(within(card).queryByText('Sample data')).toBeNull();
+    expect(screen.queryByRole('note')).toBeNull(); // no "Development mode" banner
   });
 });
 
@@ -355,5 +530,142 @@ describe('Job details from a recommendation', () => {
     expect(screen.getAllByRole('note')[0]).toHaveTextContent('Development mode');
     await userEvent.click(within(why).getByRole('button', { name: 'Save job' }));
     await waitFor(() => expect(api.find('POST', '/recommendations/jr1/save')).toHaveLength(1));
+  });
+});
+
+const realSource = (o: Partial<JobSourceItem> = {}): JobSourceItem => ({
+  ...devSource,
+  key: 'greenhouse',
+  name: 'Greenhouse',
+  kind: 'API',
+  isDevelopment: false,
+  postingOrigin: 'EMPLOYER',
+  description: 'Jobs from 2 employer job boards hosted on Greenhouse (public Job Board API).',
+  ...o,
+});
+
+describe('Global job discovery', () => {
+  it('filters recommendations by source, work mode, score, title, company and location', async () => {
+    const api = mockApi({
+      'GET /auth/me': meOk,
+      'GET /notifications': { body: noNotifications },
+      'GET /job-sources': { body: [realSource(), realSource({ key: 'lever', name: 'Lever' })] },
+      'GET /job-alerts': { body: [alert()] },
+      'GET /recommendations?status=ACTIVE': { body: [] },
+      'GET /recommendations?status=ACTIVE&source=lever': { body: [] },
+      'GET /recommendations?status=ACTIVE&source=lever&workMode=REMOTE': { body: [] },
+      'GET /recommendations?status=ACTIVE&source=lever&workMode=REMOTE&minScore=80': { body: [] },
+      'GET /recommendations?status=ACTIVE&source=lever&workMode=REMOTE&minScore=80&title=Angular&company=Acme&location=Chennai':
+        { body: [] },
+    });
+    renderApp('/recommendations');
+    await screen.findByRole('option', { name: 'Lever' });
+    await userEvent.selectOptions(screen.getByLabelText('Source'), 'lever');
+    await userEvent.selectOptions(screen.getByLabelText('Work mode'), 'REMOTE');
+    await userEvent.selectOptions(screen.getByLabelText(/^Minimum/), '80');
+    await userEvent.type(screen.getByLabelText('Job title'), 'Angular');
+    await userEvent.type(screen.getByLabelText('Company'), 'Acme');
+    await userEvent.type(screen.getByLabelText('Location'), 'Chennai');
+    await userEvent.click(screen.getByRole('button', { name: 'Apply filters' }));
+    await waitFor(() =>
+      expect(
+        api.find(
+          'GET',
+          '/recommendations?status=ACTIVE&source=lever&workMode=REMOTE&minScore=80&title=Angular&company=Acme&location=Chennai',
+        ),
+      ).toHaveLength(1),
+    );
+    expect(await screen.findByText('No recommendations match these filters')).toBeInTheDocument();
+  });
+
+  it('shows when jobs are being found and when some sources are unavailable', async () => {
+    mockApi({
+      'GET /auth/me': meOk,
+      'GET /notifications': { body: noNotifications },
+      'GET /job-sources': {
+        body: [
+          realSource({
+            lastSuccessAt: '2026-10-12T09:00:00.000Z',
+            lastFailureAt: '2026-10-13T09:00:00.000Z',
+            lastError: 'Greenhouse could not be reached.',
+          }),
+        ],
+      },
+      'GET /job-alerts': { body: [alert({ lastRun: run({ status: 'RUNNING' }) })] },
+      'GET /recommendations?status=ACTIVE': { body: [] },
+    });
+    renderApp('/recommendations');
+    expect(await screen.findByText('Finding jobs...')).toBeInTheDocument();
+    expect(screen.getByText(/Some job sources are temporarily unavailable/)).toBeInTheDocument();
+  });
+
+  it('lists every job source with its status, including sites that are not integrated', async () => {
+    mockApi({
+      'GET /auth/me': meOk,
+      'GET /notifications': { body: noNotifications },
+      'GET /job-sources': {
+        body: [
+          realSource({ key: 'adzuna', name: 'Adzuna', postingOrigin: 'AGGREGATOR' }),
+          realSource({
+            key: 'lever',
+            name: 'Lever',
+            isEnabled: false,
+            status: 'NOT_CONFIGURED',
+          }),
+          realSource({
+            key: 'linkedin',
+            name: 'LinkedIn',
+            isEnabled: false,
+            status: 'NOT_INTEGRATED',
+            postingOrigin: null,
+            description: 'LinkedIn is not searched.',
+          }),
+        ],
+      },
+      'GET /job-alerts': { body: [] },
+    });
+    renderApp('/job-alerts');
+    const list = await screen.findByRole('list', { name: 'Job sources' });
+    const item = (name: string) =>
+      within(list)
+        .getAllByRole('listitem')
+        .find((li) => li.textContent?.startsWith(name))!;
+    expect(within(item('Adzuna')).getByText('Configured')).toBeInTheDocument();
+    expect(within(item('Adzuna')).getByText('Job search service')).toBeInTheDocument();
+    expect(within(item('Lever')).getByText('Not configured')).toBeInTheDocument();
+    expect(within(item('LinkedIn')).getByText('Not integrated')).toBeInTheDocument();
+  });
+
+  it('shows the search terms a run used, including those from the Career Profile', async () => {
+    mockApi({
+      'GET /auth/me': meOk,
+      'GET /notifications': { body: noNotifications },
+      'GET /job-alerts/al1': { body: alert() },
+      'GET /job-alerts/al1/runs': {
+        body: [
+          run({
+            searchStrategy: {
+              keywords: ['Frontend Developer', 'Angular Developer'],
+              alternateTitles: ['Angular Developer'],
+              locations: ['Chennai'],
+              remotePreference: 'HYBRID',
+              employmentTypes: [],
+              experienceLevel: null,
+              basis: {
+                locations: 'PROFILE',
+                remotePreference: 'PROFILE',
+                employmentTypes: 'ALERT',
+              },
+            },
+          }),
+        ],
+      },
+    });
+    renderApp('/job-alerts/al1/runs');
+    expect(
+      await screen.findByText(
+        /Searched for “Frontend Developer”, “Angular Developer” · in Chennai \(from your profile\)/,
+      ),
+    ).toHaveTextContent('Alternate titles from your Career Profile: Angular Developer.');
   });
 });

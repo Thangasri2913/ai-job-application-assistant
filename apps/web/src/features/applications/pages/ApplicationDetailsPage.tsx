@@ -1,4 +1,8 @@
-import { type ApplicationDetail, SUBMITTED_STATUSES } from '@job-assist/shared';
+import {
+  type ApplicationDetail,
+  REJECTION_CATEGORY_LABELS,
+  SUBMITTED_STATUSES,
+} from '@job-assist/shared';
 import { Archive, ArchiveRestore, ExternalLink, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -269,8 +273,18 @@ export function ApplicationDetailsPage() {
           <Card aria-labelledby="status-heading">
             <CardHeader id="status-heading" title="Status" />
             <ApplicationStatusSelector application={a} />
+            {a.rejectionCategory ? (
+              <p className="mt-3 text-sm text-muted">
+                Rejection category: {REJECTION_CATEGORY_LABELS[a.rejectionCategory]}
+              </p>
+            ) : null}
             {a.rejectionReason ? (
               <p className="mt-3 text-sm text-muted">Rejection reason: {a.rejectionReason}</p>
+            ) : null}
+            {a.offerDetails ? (
+              <p className="mt-3 text-sm whitespace-pre-wrap text-muted">
+                Offer details: {a.offerDetails}
+              </p>
             ) : null}
           </Card>
           <Card aria-labelledby="job-heading">

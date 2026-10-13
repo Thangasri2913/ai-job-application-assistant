@@ -14,7 +14,7 @@ import {
   SUBMITTED_STATUSES,
 } from '@job-assist/shared';
 import type { RequestContext } from '../../common/decorators/request-context.decorator.js';
-import { toDbDate } from '../../common/dates.js';
+import { fromDbDate, toDbDate } from '../../common/dates.js';
 import { AppException } from '../../common/errors/app.exception.js';
 import { ErrorCode } from '../../common/errors/error-codes.js';
 import { AppConfigService } from '../../config/config.module.js';
@@ -47,6 +47,9 @@ import type {
 
 const notFound = (what = 'Application') =>
   new AppException(HttpStatus.NOT_FOUND, ErrorCode.NOT_FOUND, `${what} not found.`);
+/** Statuses in which offer details may be recorded. */
+const OFFER_STATUSES: ApplicationStatus[] = ['OFFER', 'ACCEPTED'];
+
 const invalid = (field: string, message: string) =>
   AppException.validation([{ field, messages: [message] }]);
 const today = () => new Date().toISOString().slice(0, 10);
@@ -338,6 +341,19 @@ export class ApplicationsService {
         throw invalid('rejectionReason', 'Add a rejection reason only to a rejected application.');
       data.rejectionReason = dto.rejectionReason;
     }
+    if (dto.rejectionCategory !== undefined) {
+      if (app.status !== 'REJECTED')
+        throw invalid(
+          'rejectionCategory',
+          'Add a rejection category only to a rejected application.',
+        );
+      data.rejectionCategory = dto.rejectionCategory;
+    }
+    if (dto.offerDetails !== undefined) {
+      if (!OFFER_STATUSES.includes(app.status) && !app.offerDetails)
+        throw invalid('offerDetails', 'Add offer details once an offer has been received.');
+      data.offerDetails = dto.offerDetails;
+    }
     await this.prisma.application.update({ where: { id: app.id }, data });
     await this.audit.record({
       action: AuditAction.APPLICATION_UPDATED,
@@ -383,11 +399,28 @@ export class ApplicationsService {
           'Add a rejection reason only when marking the application as rejected.',
         );
       }
+      if (dto.rejectionCategory && dto.status !== 'REJECTED') {
+        throw invalid(
+          'rejectionCategory',
+          'Add a rejection category only when marking the application as rejected.',
+        );
+      }
+      if (dto.offerDetails && !OFFER_STATUSES.includes(dto.status)) {
+        throw invalid('offerDetails', 'Add offer details only with an offer.');
+      }
+      if (dto.occurredOn) {
+        if (!isValidAppliedDate(dto.occurredOn))
+          throw invalid('occurredOn', 'The date can’t be in the future.');
+        const applied = fromDbDate(app.appliedAt);
+        if (applied && dto.occurredOn < applied)
+          throw invalid('occurredOn', 'The date can’t be before the application date.');
+      }
       await tx.applicationStatusHistory.create({
         data: {
           applicationId,
           fromStatus: app.status,
           toStatus: dto.status,
+          occurredOn: toDbDate(dto.occurredOn ?? null),
           note: dto.note ?? null,
         },
       });
@@ -400,6 +433,10 @@ export class ApplicationsService {
           ...(dto.status === 'REJECTED' && dto.rejectionReason
             ? { rejectionReason: dto.rejectionReason }
             : {}),
+          ...(dto.status === 'REJECTED' && dto.rejectionCategory
+            ? { rejectionCategory: dto.rejectionCategory }
+            : {}),
+          ...(dto.offerDetails ? { offerDetails: dto.offerDetails } : {}),
         },
       });
       return app.status;

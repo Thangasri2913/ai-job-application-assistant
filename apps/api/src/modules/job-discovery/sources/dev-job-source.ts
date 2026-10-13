@@ -41,6 +41,8 @@ export class DevJobSourceAdapter extends JobSourceAdapter<DevRawJob> {
     kind: 'DEVELOPMENT',
     isDevelopment: true,
     description: 'Built-in fixture postings for development. Not real job listings.',
+    attribution: null,
+    postingOrigin: 'SAMPLE',
   };
 
   constructor(
@@ -85,6 +87,7 @@ export class DevJobSourceAdapter extends JobSourceAdapter<DevRawJob> {
       description: raw.body,
       sourceUrl: devJobUrl(raw.ref),
       postedAt: new Date(this.now().getTime() - raw.postedDaysAgo * DAY_MS),
+      discoveredFrom: 'Development sample fixtures',
     };
   }
 }

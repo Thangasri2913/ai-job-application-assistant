@@ -1,4 +1,9 @@
-import type { JobSearchRunItem, JobSearchRunStatus } from '@job-assist/shared';
+import {
+  type JobSearchRunItem,
+  type JobSearchRunStatus,
+  type JobSearchStrategy,
+  REMOTE_PREFERENCE_LABELS,
+} from '@job-assist/shared';
 import { Badge } from '../../../shared/ui/Badge';
 import { Spinner } from '../../../shared/ui/Spinner';
 
@@ -38,12 +43,21 @@ export function SearchRunHistory({ runs }: { runs: JobSearchRunItem[] }) {
             </p>
             <RunStatusBadge status={run.status} />
           </div>
+          {run.completedAt ? (
+            <p className="mt-0.5 text-xs text-muted">
+              Completed {dateTime.format(new Date(run.completedAt))} · {run.sources.length} source
+              {run.sources.length === 1 ? '' : 's'} searched
+            </p>
+          ) : null}
           {run.status !== 'RUNNING' ? (
-            <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-5">
+            <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
               {(
                 [
-                  ['Found', run.jobsFound],
-                  ['New jobs', run.jobsCreated],
+                  ['Discovered', run.jobsDiscovered],
+                  ['Matched your search', run.jobsFound],
+                  ['New jobs added', run.jobsCreated],
+                  ['Duplicates', run.duplicates],
+                  ['Analysed', run.jobsAnalyzed],
                   ['Recommended', run.recommendationsCreated],
                   ['Below threshold', run.belowThreshold],
                   ['Skipped', run.jobsSkipped],
@@ -56,6 +70,7 @@ export function SearchRunHistory({ runs }: { runs: JobSearchRunItem[] }) {
               ))}
             </dl>
           ) : null}
+          {run.searchStrategy ? <StrategySummary strategy={run.searchStrategy} /> : null}
           {run.errorMessage ? <p className="mt-2 text-danger">{run.errorMessage}</p> : null}
           {run.note ? <p className="mt-2 text-muted">{run.note}</p> : null}
           {run.sources.length > 0 ? (
@@ -68,7 +83,11 @@ export function SearchRunHistory({ runs }: { runs: JobSearchRunItem[] }) {
                 >
                   {s.sourceName}
                   {s.isDevelopment ? ' (sample data)' : ''}:{' '}
-                  {s.status === 'OK' ? `${s.found} found` : 'failed'}
+                  {s.status === 'OK'
+                    ? s.returned !== undefined
+                      ? `${s.returned} returned, ${s.found} matched`
+                      : `${s.found} found`
+                    : `failed — ${s.error ?? 'unavailable'}`}
                 </li>
               ))}
             </ul>
@@ -76,5 +95,28 @@ export function SearchRunHistory({ runs }: { runs: JobSearchRunItem[] }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/** The terms a run searched for, and which came from the Career Profile. */
+function StrategySummary({ strategy: s }: { strategy: JobSearchStrategy }) {
+  const parts = [
+    `Searched for ${s.keywords.map((k) => `“${k}”`).join(', ')}`,
+    s.locations.length
+      ? `in ${s.locations.join(', ')}${s.basis.locations === 'PROFILE' ? ' (from your profile)' : ''}`
+      : null,
+    s.remotePreference !== 'ANY'
+      ? `${REMOTE_PREFERENCE_LABELS[s.remotePreference].toLowerCase()}${
+          s.basis.remotePreference === 'PROFILE' ? ' (from your profile)' : ''
+        }`
+      : null,
+  ].filter(Boolean);
+  return (
+    <p className="mt-2 text-xs text-muted">
+      {parts.join(' · ')}.
+      {s.alternateTitles.length
+        ? ` Alternate titles from your Career Profile: ${s.alternateTitles.join(', ')}.`
+        : ''}
+    </p>
   );
 }

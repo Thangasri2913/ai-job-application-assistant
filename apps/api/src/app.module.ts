@@ -16,6 +16,7 @@ import { AuditModule } from './modules/audit/audit.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { InterviewsModule } from './modules/interviews/interviews.module.js';
+import { CareerIntelligenceModule } from './modules/career-intelligence/career-intelligence.module.js';
 import { JobDiscoveryModule } from './modules/job-discovery/job-discovery.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { JobsModule } from './modules/jobs/jobs.module.js';
@@ -110,6 +111,7 @@ const REQUEST_ID_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
     InterviewsModule,
     NotificationsModule,
     JobDiscoveryModule,
+    CareerIntelligenceModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

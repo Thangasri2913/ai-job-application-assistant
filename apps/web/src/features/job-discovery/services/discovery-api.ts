@@ -8,10 +8,23 @@ import type {
   NotificationItem,
   NotificationListResponse,
   UpdateJobAlertRequest,
+  WorkMode,
 } from '@job-assist/shared';
 import { apiRequest } from '../../../lib/api/http';
 
 export type RecommendationFilter = JobRecommendationStatus | 'ACTIVE' | 'ALL';
+
+/** Server-side filters for the recommendations list (all optional except status). */
+export interface RecommendationQuery {
+  status: RecommendationFilter;
+  alertId?: string;
+  source?: string;
+  workMode?: WorkMode;
+  minScore?: number;
+  title?: string;
+  company?: string;
+  location?: string;
+}
 
 export const discoveryApi = {
   sources: () => apiRequest<JobSourceItem[]>('/job-sources'),
@@ -26,9 +39,12 @@ export const discoveryApi = {
     apiRequest<JobSearchRunItem>(`/job-alerts/${id}/run`, { method: 'POST' }),
   runs: (id: string) => apiRequest<JobSearchRunItem[]>(`/job-alerts/${id}/runs`),
 
-  recommendations: (status: RecommendationFilter = 'ACTIVE', alertId?: string) => {
-    const params = new URLSearchParams({ status });
-    if (alertId) params.set('alertId', alertId);
+  recommendations: (query: RecommendationQuery = { status: 'ACTIVE' }) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      const text = value === undefined ? '' : String(value).trim();
+      if (text) params.set(key, text);
+    }
     return apiRequest<JobRecommendationItem[]>(`/recommendations?${params.toString()}`);
   },
   recommendation: (id: string) => apiRequest<JobRecommendationItem>(`/recommendations/${id}`),

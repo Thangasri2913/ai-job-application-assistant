@@ -118,6 +118,9 @@ describe('ApplicationDetailsPage', () => {
       status: 'INTERVIEW',
       note: 'First technical interview scheduled',
       rejectionReason: null,
+      rejectionCategory: null,
+      offerDetails: null,
+      occurredOn: null,
     });
   });
 

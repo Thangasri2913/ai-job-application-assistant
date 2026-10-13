@@ -17,6 +17,12 @@ apps/api/src/generated/
 !.env.example
 !**/.env.test.example
 
+# Keys and certificates — never commit
+*.pem
+*.key
+*.p12
+*.pfx
+
 # Logs & OS
 *.log
 npm-debug.log*
@@ -28,6 +34,9 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+
+# Local dev script logs (scripts/dev.sh)
+.dev/
 
 # Playwright
 test-results/

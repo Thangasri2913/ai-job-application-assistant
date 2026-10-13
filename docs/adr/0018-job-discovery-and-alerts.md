@@ -72,3 +72,29 @@ A retried or resumed run therefore changes nothing. A job left behind by an inte
 - Reusing the per-user job model means no cross-user sharing of analysis work. Two users finding the same posting each get their own job and analysis. This is simple and safe, and acceptable at the current scale.
 - Screening is deterministic. With AI enabled, the stored analysis can differ slightly from screening, so the threshold is re-checked on the stored result.
 - In-process scheduling runs on every API instance. The compare-and-set claim prevents double runs, but a queue (ADR-0005) is the next step for many alerts or several instances.
+
+## Update (real job source)
+
+- **Adzuna adapter.** `adzuna` is the first real source: the official Adzuna job search API, with credentials from `ADZUNA_APP_ID` / `ADZUNA_APP_KEY`. It makes at most 4 requests per run and keeps a per-minute and daily request budget. Each displayed ad carries the "Jobs by Adzuna" attribution its terms require.
+- **Production rule, enforced in the backend.** A `SampleDataPolicy` (`allowSampleData = NODE_ENV !== 'production'`) does two things: the source registry never activates a development source, and recommendation queries exclude `jobs.is_sample_data`. The startup selection already refused `dev` in production; this is a second guard plus query-level filtering.
+- **No schema change.** `jobs.is_sample_data` is set from the source's kind when a posting is stored.
+
+## Update (global real job discovery)
+
+Details are in [JOB-DISCOVERY.md](../JOB-DISCOVERY.md).
+
+- **More real sources, same adapter contract.**
+  - **Remotive:** public API, one cached feed request for all alerts, at most 4 a day.
+  - **Greenhouse:** public Job Board API, configured employer boards only.
+  - **Lever:** public Postings API, configured employer sites only.
+  - Shared helpers in `sources/http.ts` give safe error messages, response caching and HTML-to-text conversion.
+  - LinkedIn, Naukri and Indeed are listed as **Not integrated**. There is no permitted API, and the app never signs in as the user or scrapes.
+- **The employer's posting is preferred.** Descriptors declare `postingOrigin` (`EMPLOYER` / `AGGREGATOR` / `SAMPLE`). Employer postings are processed first in a run. When an employer board lists a job that discovery first took from an aggregator, the discovered job's link and source switch to the employer posting.
+- **Search strategy from the Career Profile.** The alert's criteria win. Preferred roles and the current title add alternate titles, and the profile fills locations, remote preference and employment types the alert leaves open. The strategy is stored per run.
+- **De-duplication tightened.** The description-similarity rule now also requires the same normalised title and a compatible location, so similar titles or the same role in another city are never merged.
+- **Schema (migration `20261013100000_global_job_discovery`, additive only):**
+  - `discovered_jobs.discovered_from` (provenance);
+  - `job_search_runs.jobs_discovered`, `duplicates`, `jobs_analyzed` and `search_strategy`.
+- **API changes:**
+  - `GET /job-sources` adds `status`, `postingOrigin` and health fields (`lastSuccessAt`, `lastFailureAt`, `lastError`), and never returns credentials.
+  - `GET /recommendations` accepts `source`, `workMode`, `minScore`, `title`, `company` and `location` filters.

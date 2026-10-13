@@ -18,11 +18,6 @@ const COMING_SOON: { path: string; title: string; description: string }[] = [
       'Your experience, skills, education and projects — the facts every suggestion is grounded in.',
   },
   {
-    path: 'analytics',
-    title: 'Analytics',
-    description: 'Insights calculated from your real application outcomes.',
-  },
-  {
     path: 'settings',
     title: 'Settings',
     description: 'Account, security and notification settings.',
@@ -125,6 +120,16 @@ export const routes: RouteObject[] = [
                 .InterviewPreparationPage,
             }),
           },
+          {
+            path: 'career-intelligence',
+            lazy: async () => ({
+              Component: (
+                await import('./features/career-intelligence/pages/CareerIntelligencePage')
+              ).CareerIntelligencePage,
+            }),
+          },
+          // The former "Analytics" placeholder now lives at Career Intelligence.
+          { path: 'analytics', element: <Navigate to="/career-intelligence" replace /> },
           {
             path: 'recommendations',
             lazy: async () => ({

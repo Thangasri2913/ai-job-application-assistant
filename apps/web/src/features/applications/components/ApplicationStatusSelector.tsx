@@ -1,8 +1,12 @@
 import {
+  APPLICATION_OFFER_DETAILS_MAX_LENGTH,
   APPLICATION_REJECTION_REASON_MAX_LENGTH,
   APPLICATION_STATUS_LABELS,
   type ApplicationDetail,
   type ApplicationStatus,
+  REJECTION_CATEGORIES,
+  REJECTION_CATEGORY_LABELS,
+  type RejectionCategory,
 } from '@job-assist/shared';
 import { useState } from 'react';
 import { errorMessage } from '../../../lib/api/api-error';
@@ -18,13 +22,28 @@ export function ApplicationStatusSelector({ application }: { application: Applic
   const [next, setNext] = useState<ApplicationStatus | ''>('');
   const [note, setNote] = useState('');
   const [reason, setReason] = useState('');
+  const [category, setCategory] = useState<RejectionCategory | ''>('');
+  const [offer, setOffer] = useState('');
+  const [occurredOn, setOccurredOn] = useState('');
+  const isOffer = next === 'OFFER' || next === 'ACCEPTED';
   const change = useApplicationAction(() =>
     applicationsApi.changeStatus(application.id, {
       status: next as ApplicationStatus,
       note: note.trim() || null,
       rejectionReason: next === 'REJECTED' ? reason.trim() || null : null,
+      rejectionCategory: next === 'REJECTED' ? category || null : null,
+      offerDetails: isOffer ? offer.trim() || null : null,
+      occurredOn: occurredOn || null,
     }),
   );
+  const reset = () => {
+    setNext('');
+    setNote('');
+    setReason('');
+    setCategory('');
+    setOffer('');
+    setOccurredOn('');
+  };
   const options = application.allowedNextStatuses;
 
   return (
@@ -42,10 +61,7 @@ export function ApplicationStatusSelector({ application }: { application: Applic
           className="grid gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            if (next)
-              change.mutate(undefined, {
-                onSuccess: () => (setNext(''), setNote(''), setReason('')),
-              });
+            if (next) change.mutate(undefined, { onSuccess: reset });
           }}
         >
           <label className="grid gap-1 text-sm">
@@ -64,11 +80,51 @@ export function ApplicationStatusSelector({ application }: { application: Applic
           </label>
           {next === 'REJECTED' ? (
             <label className="grid gap-1 text-sm">
+              <span className="font-medium">Category (optional)</span>
+              <Select
+                value={category}
+                onChange={(e) => setCategory(e.target.value as RejectionCategory | '')}
+              >
+                <option value="">Not recorded</option>
+                {REJECTION_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {REJECTION_CATEGORY_LABELS[c]}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ) : null}
+          {isOffer && !application.offerDetails ? (
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium">Offer details (optional)</span>
+              <textarea
+                value={offer}
+                maxLength={APPLICATION_OFFER_DETAILS_MAX_LENGTH}
+                rows={2}
+                onChange={(e) => setOffer(e.target.value)}
+                className={controlClasses(false, 'py-2')}
+              />
+            </label>
+          ) : null}
+          {next === 'REJECTED' ? (
+            <label className="grid gap-1 text-sm">
               <span className="font-medium">Reason (optional)</span>
               <input
                 value={reason}
                 maxLength={APPLICATION_REJECTION_REASON_MAX_LENGTH}
                 onChange={(e) => setReason(e.target.value)}
+                className={controlClasses(false, 'h-10')}
+              />
+            </label>
+          ) : null}
+          {next ? (
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium">Date it happened (optional)</span>
+              <input
+                type="date"
+                value={occurredOn}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => setOccurredOn(e.target.value)}
                 className={controlClasses(false, 'h-10')}
               />
             </label>

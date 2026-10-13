@@ -3,6 +3,8 @@ import {
   type JobRecommendationItem,
   type JobSearchRunItem,
   type JobSearchSourceResult,
+  type JobSearchStrategy,
+  type SourceAttribution,
   matchLevel,
 } from '@job-assist/shared';
 import type { Prisma } from '../../generated/prisma/client.js';
@@ -18,14 +20,21 @@ export function toRunItem(run: RunRow): JobSearchRunItem {
     alertId: run.alertId,
     trigger: run.trigger,
     status: run.status,
+    jobsDiscovered: run.jobsDiscovered,
     jobsFound: run.jobsFound,
     jobsCreated: run.jobsCreated,
     jobsSkipped: run.jobsSkipped,
     belowThreshold: run.belowThreshold,
     recommendationsCreated: run.recommendationsCreated,
+    duplicates: run.duplicates,
+    jobsAnalyzed: run.jobsAnalyzed,
     sources: Array.isArray(run.sourceResults)
       ? (run.sourceResults as unknown as JobSearchSourceResult[])
       : [],
+    searchStrategy:
+      run.searchStrategy && typeof run.searchStrategy === 'object'
+        ? (run.searchStrategy as unknown as JobSearchStrategy)
+        : null,
     errorMessage: run.errorMessage,
     note: run.note,
     startedAt: run.startedAt.toISOString(),
@@ -81,6 +90,7 @@ export const RECOMMENDATION_INCLUDE = {
     select: {
       workMode: true,
       postedAt: true,
+      discoveredFrom: true,
       source: { select: { key: true, name: true, isDevelopment: true } },
     },
   },
@@ -90,7 +100,11 @@ export type RecommendationRow = Prisma.JobRecommendationGetPayload<{
   include: typeof RECOMMENDATION_INCLUDE;
 }>;
 
-export function toRecommendationItem(r: RecommendationRow): JobRecommendationItem {
+/** `attributionFor` supplies the attribution a source's terms require (by source key). */
+export function toRecommendationItem(
+  r: RecommendationRow,
+  attributionFor: (key: string) => SourceAttribution | null = () => null,
+): JobRecommendationItem {
   return {
     id: r.id,
     status: r.status,
@@ -121,7 +135,13 @@ export function toRecommendationItem(r: RecommendationRow): JobRecommendationIte
       postedAt: iso(r.discoveredJob?.postedAt ?? null),
       isSampleData: r.job.isSampleData,
     },
-    source: r.discoveredJob?.source ?? null,
+    source: r.discoveredJob?.source
+      ? {
+          ...r.discoveredJob.source,
+          attribution: attributionFor(r.discoveredJob.source.key),
+          discoveredFrom: r.discoveredJob.discoveredFrom,
+        }
+      : null,
     alert: r.alert,
     createdAt: r.createdAt.toISOString(),
     viewedAt: iso(r.viewedAt),

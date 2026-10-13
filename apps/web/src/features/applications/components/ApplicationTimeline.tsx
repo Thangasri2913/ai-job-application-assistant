@@ -3,7 +3,7 @@ import {
   APPLICATION_STATUS_LABELS,
   type ApplicationTimelineEvent,
 } from '@job-assist/shared';
-import { formatDate } from '../../../shared/ui/format';
+import { formatDate, formatDay } from '../../../shared/ui/format';
 
 function describe(e: ApplicationTimelineEvent): { title: string; detail: string | null } {
   switch (e.kind) {
@@ -16,7 +16,11 @@ function describe(e: ApplicationTimelineEvent): { title: string; detail: string 
       return {
         title: APPLICATION_STATUS_LABELS[e.toStatus],
         detail:
-          [e.fromStatus ? `from ${APPLICATION_STATUS_LABELS[e.fromStatus]}` : null, e.note]
+          [
+            e.fromStatus ? `from ${APPLICATION_STATUS_LABELS[e.fromStatus]}` : null,
+            e.occurredOn ? `on ${formatDay(e.occurredOn)}` : null,
+            e.note,
+          ]
             .filter(Boolean)
             .join(' · ') || null,
       };

@@ -81,7 +81,12 @@ export function previousStatus(
 const firstChangeTo = (history: HistoryRow[], statuses: ApplicationStatus[]) =>
   history.find((h) => statuses.includes(h.toStatus))?.changedAt.toISOString() ?? null;
 
-const CLOSED: ApplicationStatus[] = ['REJECTED', 'WITHDRAWN', 'NO_RESPONSE'];
+const CLOSED: ApplicationStatus[] = ['ACCEPTED', 'REJECTED', 'WITHDRAWN', 'NO_RESPONSE'];
+const INTERVIEW_STAGES: ApplicationStatus[] = [
+  'INTERVIEW',
+  'TECHNICAL_INTERVIEW',
+  'FINAL_INTERVIEW',
+];
 
 export function toApplicationDetail(a: DetailRow): ApplicationDetail {
   const history = a.statusHistory;
@@ -90,6 +95,8 @@ export function toApplicationDetail(a: DetailRow): ApplicationDetail {
     ...toApplicationSummary(a),
     applicationUrl: a.applicationUrl,
     rejectionReason: a.rejectionReason,
+    rejectionCategory: a.rejectionCategory,
+    offerDetails: a.offerDetails,
     job: a.job,
     resumeUsed: {
       resumeId: a.resumeVersion.resume.id,
@@ -118,7 +125,7 @@ export function toApplicationDetail(a: DetailRow): ApplicationDetail {
     importantDates: {
       createdAt: a.createdAt.toISOString(),
       appliedAt: fromDbDate(a.appliedAt),
-      firstInterviewAt: firstChangeTo(history, ['INTERVIEW', 'FINAL_INTERVIEW']),
+      firstInterviewAt: firstChangeTo(history, INTERVIEW_STAGES),
       offerAt: firstChangeTo(history, ['OFFER']),
       closedAt: CLOSED.includes(a.status)
         ? (history
@@ -136,6 +143,7 @@ export const toStatusChange = (h: HistoryRow): ApplicationStatusChange => ({
   fromStatus: h.fromStatus,
   toStatus: h.toStatus,
   changedAt: h.changedAt.toISOString(),
+  occurredOn: fromDbDate(h.occurredOn),
   note: h.note,
 });
 
@@ -178,6 +186,7 @@ export function buildTimeline(
       at: h.changedAt.toISOString(),
       fromStatus: h.fromStatus,
       toStatus: h.toStatus,
+      occurredOn: fromDbDate(h.occurredOn),
       note: h.note,
     })),
     ...notes.map((n): ApplicationTimelineEvent => ({

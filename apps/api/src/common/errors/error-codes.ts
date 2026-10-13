@@ -63,6 +63,8 @@ export const ErrorCode = {
   /** A search for this alert is already running. */
   JOB_SEARCH_IN_PROGRESS: 'JOB_SEARCH_IN_PROGRESS',
   JOB_ALERT_LIMIT: 'JOB_ALERT_LIMIT',
+  /** Career insights are already being generated for this user. */
+  INSIGHTS_IN_PROGRESS: 'INSIGHTS_IN_PROGRESS',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

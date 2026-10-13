@@ -134,6 +134,15 @@ Rules: at most one non-archived application per job (enforced by the service und
 
 `jobs` gains `origin` (MANUAL/DISCOVERED), `is_sample_data` and `in_library`.
 
+### Career intelligence
+
+| Table                 | Notes                                                                                                                                                                                                                                                          |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `career_insight_runs` | Per user: status (PENDING/RUNNING/COMPLETED/FAILED), trigger (AUTO/MANUAL), source (AI/RULES), provider/model (+ prompt version), `data_fingerprint` (hash of the facts used), `analytics_version`, applications analysed, note/error, generated/expires times |
+| `career_insights`     | Per run: category, title, explanation, `evidence` (JSONB: cited facts' computed statements), `evidence_refs[]`, confidence (LOW/MEDIUM/HIGH), recommended action, source type, timestamps. Index `(user_id, category, generated_at)`                           |
+
+`applications` gains `rejection_category` (enum, voluntary) and `offer_details`; `application_status_history` gains `occurred_on` (date the step happened). `ApplicationStatus` gains `TECHNICAL_INTERVIEW` and `ACCEPTED`. Analytics themselves are not stored: they are computed from these tables on request.
+
 ## Prisma commands
 
 | Task                                        | Command (from repo root)                                            |

@@ -12,6 +12,7 @@ import { LoadingState } from '../../../shared/ui/LoadingState';
 import { PageHeader } from '../../../shared/ui/PageHeader';
 import { JobAlertCard } from '../components/JobAlertCard';
 import { JobAlertForm } from '../components/JobAlertForm';
+import { JobSourceStatusList } from '../components/JobSourceStatusList';
 import { SampleDataNotice } from '../components/SampleDataNotice';
 import {
   useDiscoveryAction,
@@ -59,12 +60,19 @@ export function JobAlertsPage() {
       <div className="mb-5 grid gap-3">
         {devMode ? <SampleDataNotice /> : null}
         {sources.data && enabled.length === 0 ? (
-          <Alert>No job sources are configured on the server, so alerts can’t find jobs yet.</Alert>
+          <Alert>
+            No job sources are configured yet. Alerts can’t find jobs until a supported job source
+            is configured on the server.
+          </Alert>
         ) : null}
         <p className="text-sm text-muted">
-          Alerts only search legitimate job sources and never apply for you. Only your search terms
-          are sent to a source — never your resume or profile.
+          Alerts only search legitimate job sources through their official APIs and never apply for
+          you. Only search terms are sent to a source — your alert’s keywords and locations plus the
+          job titles and preferences in your Career Profile — never your resume or contact details.
         </p>
+        {sources.data && sources.data.length > 0 ? (
+          <JobSourceStatusList sources={sources.data} />
+        ) : null}
       </div>
       {run.error || update.error || remove.error ? (
         <div className="mb-4">

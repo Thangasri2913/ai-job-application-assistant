@@ -106,6 +106,26 @@ export type UpdateJobAlertRequest = Partial<CreateJobAlertRequest>;
 
 // ─── Responses ───────────────────────────────────────────────────────────────
 
+/**
+ * ACTIVE: searched by alert runs. NOT_CONFIGURED: enabled but missing settings (e.g. API
+ * credentials). DEVELOPMENT_ONLY: sample data, never used in production. NOT_INTEGRATED: a
+ * well-known job site this app does not search (no permitted API is used for it).
+ */
+export const JOB_SOURCE_STATUSES = [
+  'ACTIVE',
+  'NOT_CONFIGURED',
+  'DEVELOPMENT_ONLY',
+  'NOT_INTEGRATED',
+] as const;
+export type JobSourceStatus = (typeof JOB_SOURCE_STATUSES)[number];
+
+export const JOB_SOURCE_STATUS_LABELS: Record<JobSourceStatus, string> = {
+  ACTIVE: 'Configured',
+  NOT_CONFIGURED: 'Not configured',
+  DEVELOPMENT_ONLY: 'Development only',
+  NOT_INTEGRATED: 'Not integrated',
+};
+
 export interface JobSourceItem {
   key: string;
   name: string;
@@ -113,7 +133,39 @@ export interface JobSourceItem {
   /** Development fixtures: never real listings. */
   isDevelopment: boolean;
   isEnabled: boolean;
+  status: JobSourceStatus;
   description: string | null;
+  /** EMPLOYER: the employer's own job board (original postings); AGGREGATOR: a job search service. */
+  postingOrigin: 'EMPLOYER' | 'AGGREGATOR' | 'SAMPLE' | null;
+  /** Attribution the source's terms require next to each displayed job (e.g. "Jobs by Adzuna"). */
+  attribution: SourceAttribution | null;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  /** Safe, user-facing message of the last failure; never credentials. */
+  lastError: string | null;
+}
+
+export interface SourceAttribution {
+  label: string;
+  url: string;
+}
+
+/** The search terms a run actually used (the alert's, completed from the Career Profile). */
+export interface JobSearchStrategy {
+  /** Alert keywords first, then alternate titles from the profile. */
+  keywords: string[];
+  /** Titles added from the Career Profile (preferred roles, current title). */
+  alternateTitles: string[];
+  locations: string[];
+  remotePreference: RemotePreference;
+  employmentTypes: EmploymentType[];
+  experienceLevel: SeniorityLevel | null;
+  /** Which criteria came from the alert and which from the Career Profile. */
+  basis: {
+    locations: 'ALERT' | 'PROFILE' | 'NONE';
+    remotePreference: 'ALERT' | 'PROFILE';
+    employmentTypes: 'ALERT' | 'PROFILE';
+  };
 }
 
 export interface JobSearchSourceResult {
@@ -121,6 +173,9 @@ export interface JobSearchSourceResult {
   sourceName: string;
   isDevelopment: boolean;
   status: 'OK' | 'FAILED';
+  /** Postings the source returned. */
+  returned?: number;
+  /** Postings that matched the search criteria. */
   found: number;
   /** Safe, user-facing message; never credentials or raw provider output. */
   error: string | null;
@@ -131,12 +186,20 @@ export interface JobSearchRunItem {
   alertId: string;
   trigger: JobSearchTrigger;
   status: JobSearchRunStatus;
+  /** Postings the sources returned. */
+  jobsDiscovered: number;
+  /** Postings that matched the search criteria. */
   jobsFound: number;
   jobsCreated: number;
   jobsSkipped: number;
   belowThreshold: number;
   recommendationsCreated: number;
+  /** Postings matching a job the user already has. */
+  duplicates: number;
+  /** Jobs fully analysed against the user's active resumes. */
+  jobsAnalyzed: number;
   sources: JobSearchSourceResult[];
+  searchStrategy: JobSearchStrategy | null;
   errorMessage: string | null;
   note: string | null;
   startedAt: string;
@@ -193,7 +256,14 @@ export interface JobRecommendationItem {
     postedAt: string | null;
     isSampleData: boolean;
   };
-  source: { key: string; name: string; isDevelopment: boolean } | null;
+  source: {
+    key: string;
+    name: string;
+    isDevelopment: boolean;
+    attribution: SourceAttribution | null;
+    /** Where exactly the posting was found, e.g. "Greenhouse job board: acme". */
+    discoveredFrom: string | null;
+  } | null;
   alert: { id: string; name: string } | null;
   createdAt: string;
   viewedAt: string | null;

@@ -5,6 +5,7 @@ import {
   APPLICATION_DOCUMENT_NAME_MAX_LENGTH,
   APPLICATION_DOCUMENT_TYPES,
   APPLICATION_NOTE_MAX_LENGTH,
+  APPLICATION_OFFER_DETAILS_MAX_LENGTH,
   APPLICATION_REJECTION_REASON_MAX_LENGTH,
   APPLICATION_SEARCH_MAX_LENGTH,
   APPLICATION_SORTS,
@@ -18,6 +19,8 @@ import {
   type CreateApplicationRequest,
   INITIAL_APPLICATION_STATUSES,
   type InitialApplicationStatus,
+  REJECTION_CATEGORIES,
+  type RejectionCategory,
   type UpdateApplicationRequest,
 } from '@job-assist/shared';
 import {
@@ -56,6 +59,13 @@ export class UpdateApplicationDto implements UpdateApplicationRequest {
   @OptionalUrl() applicationUrl?: string | null;
   @OptionalIsoDate() appliedAt?: string | null;
   @OptionalText(APPLICATION_REJECTION_REASON_MAX_LENGTH) rejectionReason?: string | null;
+
+  @ApiPropertyOptional({ enum: REJECTION_CATEGORIES, nullable: true })
+  @IsOptional()
+  @IsIn(REJECTION_CATEGORIES, { message: 'rejectionCategory must be a known category.' })
+  rejectionCategory?: RejectionCategory | null;
+
+  @OptionalText(APPLICATION_OFFER_DETAILS_MAX_LENGTH) offerDetails?: string | null;
 }
 
 export class ChangeStatusDto implements ChangeApplicationStatusRequest {
@@ -65,6 +75,14 @@ export class ChangeStatusDto implements ChangeApplicationStatusRequest {
 
   @OptionalText(APPLICATION_NOTE_MAX_LENGTH) note?: string | null;
   @OptionalText(APPLICATION_REJECTION_REASON_MAX_LENGTH) rejectionReason?: string | null;
+
+  @ApiPropertyOptional({ enum: REJECTION_CATEGORIES, nullable: true })
+  @IsOptional()
+  @IsIn(REJECTION_CATEGORIES, { message: 'rejectionCategory must be a known category.' })
+  rejectionCategory?: RejectionCategory | null;
+
+  @OptionalText(APPLICATION_OFFER_DETAILS_MAX_LENGTH) offerDetails?: string | null;
+  @OptionalIsoDate() occurredOn?: string | null;
 }
 
 export class NoteDto implements ApplicationNoteRequest {

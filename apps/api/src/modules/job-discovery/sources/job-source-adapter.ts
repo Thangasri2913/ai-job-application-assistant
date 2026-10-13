@@ -1,5 +1,6 @@
 import type {
   EmploymentType,
+  SourceAttribution,
   JobSourceKind,
   RemotePreference,
   SeniorityLevel,
@@ -34,6 +35,11 @@ export interface SourceJobPosting {
   /** Public URL of the posting, when the source provides one. */
   sourceUrl: string | null;
   postedAt: Date | null;
+  /**
+   * Where exactly the posting was found, e.g. "Greenhouse job board: acme" or "Adzuna search
+   * API (IN)". Provenance only: it is not a claim that the employer verified anything.
+   */
+  discoveredFrom?: string;
 }
 
 export interface JobSourceDescriptor {
@@ -44,6 +50,14 @@ export interface JobSourceDescriptor {
   /** Development fixtures: postings are samples and must never be presented as real. */
   isDevelopment: boolean;
   description: string;
+  /** Attribution the provider's terms require next to each displayed job; null if none. */
+  attribution: SourceAttribution | null;
+  /**
+   * EMPLOYER: postings come from the employer's own job board (Greenhouse, Lever), so their
+   * URLs are the original postings. AGGREGATOR: a job search service that links onwards
+   * (Adzuna, Remotive). When the same job comes from both, the employer posting is kept.
+   */
+  postingOrigin: 'EMPLOYER' | 'AGGREGATOR' | 'SAMPLE';
 }
 
 /**

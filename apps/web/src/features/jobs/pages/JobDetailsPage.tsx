@@ -16,6 +16,8 @@ import { PageHeader } from '../../../shared/ui/PageHeader';
 import { JobApplicationPanel } from '../../applications/components/JobApplicationPanel';
 import { RecommendationContext } from '../../job-discovery/components/RecommendationContext';
 import { SampleDataNotice } from '../../job-discovery/components/SampleDataNotice';
+import { attributionForJob } from '../../job-discovery/components/source-attribution';
+import { SourceAttribution } from '../../job-discovery/components/SourceAttribution';
 import { useRecommendation } from '../../job-discovery/hooks/useDiscovery';
 import { AnalysisStatus } from '../components/AnalysisStatus';
 import { JobForm } from '../components/JobForm';
@@ -252,6 +254,11 @@ export function JobDetailsPage() {
                     >
                       Open original <ExternalLink className="size-3.5" aria-hidden />
                     </a>
+                    {attributionForJob(j) ? (
+                      <span className="ml-2">
+                        <SourceAttribution attribution={attributionForJob(j)!} />
+                      </span>
+                    ) : null}
                   </dd>
                 </>
               ) : null}

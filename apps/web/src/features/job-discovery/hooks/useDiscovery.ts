@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { JobSearchRunItem } from '@job-assist/shared';
 import { dashboardKeys } from '../../career-profile/hooks/useProfile';
-import { type RecommendationFilter, discoveryApi } from '../services/discovery-api';
+import { discoveryApi, type RecommendationQuery } from '../services/discovery-api';
 
 export const discoveryKeys = {
   sources: ['job-sources'] as const,
@@ -9,8 +9,7 @@ export const discoveryKeys = {
   alert: (id: string) => ['job-alerts', id] as const,
   runs: (id: string) => ['job-alerts', id, 'runs'] as const,
   recommendations: ['recommendations'] as const,
-  recommendationList: (status: RecommendationFilter, alertId?: string) =>
-    ['recommendations', 'list', status, alertId ?? null] as const,
+  recommendationList: (query: RecommendationQuery) => ['recommendations', 'list', query] as const,
   recommendation: (id: string) => ['recommendations', 'item', id] as const,
   notifications: ['notifications'] as const,
 };
@@ -43,10 +42,11 @@ export function useSearchRuns(alertId: string) {
   });
 }
 
-export function useRecommendations(status: RecommendationFilter, alertId?: string) {
+export function useRecommendations(query: RecommendationQuery) {
   return useQuery({
-    queryKey: discoveryKeys.recommendationList(status, alertId),
-    queryFn: () => discoveryApi.recommendations(status, alertId),
+    queryKey: discoveryKeys.recommendationList(query),
+    queryFn: () => discoveryApi.recommendations(query),
+    placeholderData: (previous) => previous,
   });
 }
 

@@ -4,7 +4,7 @@ import {
   type JobRecommendationItem,
   WORK_MODE_LABELS,
 } from '@job-assist/shared';
-import { Bookmark, X } from 'lucide-react';
+import { Bookmark, ExternalLink, X } from 'lucide-react';
 import { Link } from 'react-router';
 import { Badge } from '../../../shared/ui/Badge';
 import { Button } from '../../../shared/ui/Button';
@@ -13,6 +13,7 @@ import { formatDate } from '../../../shared/ui/format';
 import { MatchScoreBadge } from './MatchScoreBadge';
 import { ResumeRecommendation } from './ResumeRecommendation';
 import { SampleDataNotice } from './SampleDataNotice';
+import { SourceAttribution } from './SourceAttribution';
 
 export function JobRecommendationCard({
   recommendation: r,
@@ -77,10 +78,30 @@ export function JobRecommendationCard({
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
         <p className="text-xs text-muted">
           {r.alert ? `From “${r.alert.name}” · ` : ''}
+          {r.job.postedAt ? `Posted ${formatDate(r.job.postedAt)} · ` : ''}
           Found {formatDate(r.createdAt)}
-          {r.source ? ` · ${r.source.name}` : ''}
+          {r.source ? (
+            <span title={r.source.discoveredFrom ?? undefined}> · Source: {r.source.name}</span>
+          ) : null}
+          {r.source?.attribution ? (
+            <>
+              {' · '}
+              <SourceAttribution attribution={r.source.attribution} />
+            </>
+          ) : null}
         </p>
         <div className="flex flex-wrap gap-2">
+          {r.job.jobUrl ? (
+            <a
+              href={r.job.jobUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              className={buttonClasses('ghost', 'sm')}
+            >
+              <ExternalLink className="size-3.5" aria-hidden />
+              View posting
+            </a>
+          ) : null}
           <Link
             to={`/jobs/${r.job.id}?recommendation=${r.id}`}
             className={buttonClasses('secondary', 'sm')}

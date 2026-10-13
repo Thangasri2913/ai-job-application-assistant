@@ -9,8 +9,10 @@ export const APPLICATION_STATUSES = [
   'RECRUITER_SCREEN',
   'ASSESSMENT',
   'INTERVIEW',
+  'TECHNICAL_INTERVIEW',
   'FINAL_INTERVIEW',
   'OFFER',
+  'ACCEPTED',
   'REJECTED',
   'WITHDRAWN',
   'NO_RESPONSE',
@@ -25,8 +27,10 @@ export const APPLICATION_STATUS_LABELS: Record<ApplicationStatus, string> = {
   RECRUITER_SCREEN: 'Recruiter Screen',
   ASSESSMENT: 'Assessment',
   INTERVIEW: 'Interview',
+  TECHNICAL_INTERVIEW: 'Technical Interview',
   FINAL_INTERVIEW: 'Final Interview',
   OFFER: 'Offer',
+  ACCEPTED: 'Accepted',
   REJECTED: 'Rejected',
   WITHDRAWN: 'Withdrawn',
   NO_RESPONSE: 'No Response',
@@ -51,6 +55,7 @@ export const APPLICATION_TRANSITIONS: Record<ApplicationStatus, readonly Applica
     'RECRUITER_SCREEN',
     'ASSESSMENT',
     'INTERVIEW',
+    'TECHNICAL_INTERVIEW',
     'OFFER',
     'REJECTED',
     'WITHDRAWN',
@@ -59,25 +64,81 @@ export const APPLICATION_TRANSITIONS: Record<ApplicationStatus, readonly Applica
   RECRUITER_SCREEN: [
     'ASSESSMENT',
     'INTERVIEW',
+    'TECHNICAL_INTERVIEW',
     'FINAL_INTERVIEW',
     'OFFER',
     'REJECTED',
     'WITHDRAWN',
     'NO_RESPONSE',
   ],
-  ASSESSMENT: ['INTERVIEW', 'FINAL_INTERVIEW', 'OFFER', 'REJECTED', 'WITHDRAWN', 'NO_RESPONSE'],
-  INTERVIEW: ['ASSESSMENT', 'FINAL_INTERVIEW', 'OFFER', 'REJECTED', 'WITHDRAWN', 'NO_RESPONSE'],
+  ASSESSMENT: [
+    'INTERVIEW',
+    'TECHNICAL_INTERVIEW',
+    'FINAL_INTERVIEW',
+    'OFFER',
+    'REJECTED',
+    'WITHDRAWN',
+    'NO_RESPONSE',
+  ],
+  INTERVIEW: [
+    'ASSESSMENT',
+    'TECHNICAL_INTERVIEW',
+    'FINAL_INTERVIEW',
+    'OFFER',
+    'REJECTED',
+    'WITHDRAWN',
+    'NO_RESPONSE',
+  ],
+  TECHNICAL_INTERVIEW: [
+    'ASSESSMENT',
+    'FINAL_INTERVIEW',
+    'OFFER',
+    'REJECTED',
+    'WITHDRAWN',
+    'NO_RESPONSE',
+  ],
   FINAL_INTERVIEW: ['OFFER', 'REJECTED', 'WITHDRAWN', 'NO_RESPONSE'],
-  OFFER: ['REJECTED', 'WITHDRAWN'],
+  OFFER: ['ACCEPTED', 'REJECTED', 'WITHDRAWN'],
+  // Accepting is the positive outcome; withdrawing afterwards is still possible.
+  ACCEPTED: ['WITHDRAWN'],
   REJECTED: [],
   WITHDRAWN: [],
-  NO_RESPONSE: ['RECRUITER_SCREEN', 'ASSESSMENT', 'INTERVIEW', 'REJECTED', 'WITHDRAWN'],
+  NO_RESPONSE: [
+    'RECRUITER_SCREEN',
+    'ASSESSMENT',
+    'INTERVIEW',
+    'TECHNICAL_INTERVIEW',
+    'REJECTED',
+    'WITHDRAWN',
+  ],
 };
 
 /** Statuses after submission (an application in one of these has been sent). */
 export const SUBMITTED_STATUSES: readonly ApplicationStatus[] = APPLICATION_STATUSES.filter(
   (s) => s !== 'SAVED' && s !== 'PREPARING',
 );
+
+/** Voluntary categories for a rejection (used in analytics; the free-text reason is kept too). */
+export const REJECTION_CATEGORIES = [
+  'SKILLS_MISMATCH',
+  'EXPERIENCE_LEVEL',
+  'POSITION_FILLED',
+  'LOCATION_OR_WORK_MODE',
+  'COMPENSATION',
+  'OTHER',
+] as const;
+export type RejectionCategory = (typeof REJECTION_CATEGORIES)[number];
+
+export const REJECTION_CATEGORY_LABELS: Record<RejectionCategory, string> = {
+  SKILLS_MISMATCH: 'Skills didn’t match',
+  EXPERIENCE_LEVEL: 'Experience level',
+  POSITION_FILLED: 'Position filled / closed',
+  LOCATION_OR_WORK_MODE: 'Location or work arrangement',
+  COMPENSATION: 'Compensation',
+  OTHER: 'Other',
+};
+
+export const APPLICATION_OFFER_DETAILS_MAX_LENGTH = 2000;
 
 export const APPLICATION_DOCUMENT_TYPES = [
   'COVER_LETTER',
@@ -134,6 +195,10 @@ export interface UpdateApplicationRequest {
   /** YYYY-MM-DD; correct the actual application date. Only once applied. */
   appliedAt?: string | null;
   rejectionReason?: string | null;
+  /** Only once rejected. */
+  rejectionCategory?: RejectionCategory | null;
+  /** Only once an offer was received. */
+  offerDetails?: string | null;
 }
 
 export interface ChangeApplicationStatusRequest {
@@ -141,6 +206,12 @@ export interface ChangeApplicationStatusRequest {
   note?: string | null;
   /** Only with status REJECTED. */
   rejectionReason?: string | null;
+  /** Only with status REJECTED. */
+  rejectionCategory?: RejectionCategory | null;
+  /** Only with status OFFER or ACCEPTED. */
+  offerDetails?: string | null;
+  /** YYYY-MM-DD the step actually happened (defaults to when it is recorded); not in the future. */
+  occurredOn?: string | null;
 }
 
 export interface ApplicationNoteRequest {
@@ -184,6 +255,8 @@ export interface ApplicationStatusChange {
   fromStatus: ApplicationStatus | null;
   toStatus: ApplicationStatus;
   changedAt: string;
+  /** YYYY-MM-DD the step actually happened, when the user gave a date. */
+  occurredOn: string | null;
   note: string | null;
 }
 
@@ -207,6 +280,8 @@ export interface ApplicationDocument {
 export interface ApplicationDetail extends ApplicationSummary {
   applicationUrl: string | null;
   rejectionReason: string | null;
+  rejectionCategory: RejectionCategory | null;
+  offerDetails: string | null;
   job: {
     id: string;
     title: string;
@@ -250,6 +325,8 @@ export type ApplicationTimelineEvent =
       at: string;
       fromStatus: ApplicationStatus | null;
       toStatus: ApplicationStatus;
+      /** YYYY-MM-DD the step actually happened, when given. */
+      occurredOn: string | null;
       note: string | null;
     }
   | { kind: 'NOTE'; at: string; noteId: string; body: string; edited: boolean }

@@ -8,3 +8,4 @@ export * from './jobs.js';
 export * from './preparation.js';
 export * from './interviews.js';
 export * from './discovery.js';
+export * from './career-intelligence.js';

@@ -56,6 +56,8 @@ model User {
   discoveredJobs     DiscoveredJob[]
   jobRecommendations JobRecommendation[]
   notifications      Notification[]
+  careerInsightRuns  CareerInsightRun[]
+  careerInsights     CareerInsight[]
 
   @@index([email])
   @@map("users")
@@ -763,11 +765,23 @@ enum ApplicationStatus {
   RECRUITER_SCREEN
   ASSESSMENT
   INTERVIEW
+  TECHNICAL_INTERVIEW
   FINAL_INTERVIEW
   OFFER
+  ACCEPTED
   REJECTED
   WITHDRAWN
   NO_RESPONSE
+}
+
+/// Why an application was rejected, when the user chooses to record it (ADR-0019).
+enum RejectionCategory {
+  SKILLS_MISMATCH
+  EXPERIENCE_LEVEL
+  POSITION_FILLED
+  LOCATION_OR_WORK_MODE
+  COMPENSATION
+  OTHER
 }
 
 enum ApplicationDocumentType {
@@ -779,25 +793,29 @@ enum ApplicationDocumentType {
 
 /// A job application the user tracks. The product never submits anything itself.
 model Application {
-  id                         String            @id @default(uuid(7)) @db.Uuid
-  userId                     String            @map("user_id") @db.Uuid
-  jobId                      String            @map("job_id") @db.Uuid
+  id                         String             @id @default(uuid(7)) @db.Uuid
+  userId                     String             @map("user_id") @db.Uuid
+  jobId                      String             @map("job_id") @db.Uuid
   /// The exact resume version used. Set at creation and never changed. RESTRICT: a version
   /// used by an application can't be deleted (its resume can only be archived).
-  resumeVersionId            String            @map("resume_version_id") @db.Uuid
-  status                     ApplicationStatus @default(SAVED)
-  appliedAt                  DateTime?         @map("applied_at") @db.Date
+  resumeVersionId            String             @map("resume_version_id") @db.Uuid
+  status                     ApplicationStatus  @default(SAVED)
+  appliedAt                  DateTime?          @map("applied_at") @db.Date
   source                     String?
-  applicationUrl             String?           @map("application_url")
-  rejectionReason            String?           @map("rejection_reason")
+  applicationUrl             String?            @map("application_url")
+  rejectionReason            String?            @map("rejection_reason")
+  /// Voluntary category for analytics (the free-text reason stays as written).
+  rejectionCategory          RejectionCategory? @map("rejection_category")
+  /// Offer information the user chooses to keep (free text).
+  offerDetails               String?            @map("offer_details")
   /// Snapshot of the job's AI recommendation and of the used version's match when created.
-  recommendedResumeVersionId String?           @map("recommended_resume_version_id") @db.Uuid
-  recommendedScore           Int?              @map("recommended_score")
-  matchAnalysisId            String?           @map("match_analysis_id") @db.Uuid
-  matchScore                 Int?              @map("match_score")
-  archivedAt                 DateTime?         @map("archived_at") @db.Timestamptz(3)
-  createdAt                  DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt                  DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  recommendedResumeVersionId String?            @map("recommended_resume_version_id") @db.Uuid
+  recommendedScore           Int?               @map("recommended_score")
+  matchAnalysisId            String?            @map("match_analysis_id") @db.Uuid
+  matchScore                 Int?               @map("match_score")
+  archivedAt                 DateTime?          @map("archived_at") @db.Timestamptz(3)
+  createdAt                  DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   user                     User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// RESTRICT: a job with applications can be archived but not deleted.
@@ -825,6 +843,8 @@ model ApplicationStatusHistory {
   fromStatus    ApplicationStatus? @map("from_status")
   toStatus      ApplicationStatus  @map("to_status")
   changedAt     DateTime           @default(now()) @map("changed_at") @db.Timestamptz(3)
+  /// When the step actually happened, if the user gave a date (changedAt = when it was recorded).
+  occurredOn    DateTime?          @map("occurred_on") @db.Date
   note          String?
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
@@ -1341,6 +1361,9 @@ model DiscoveredJob {
   location       String?
   workMode       WorkMode?        @map("work_mode")
   postedAt       DateTime?        @map("posted_at") @db.Timestamptz(3)
+  /// Provenance: where exactly the posting was found (e.g. "Greenhouse job board: acme").
+  /// Not a claim that the employer verified anything.
+  discoveredFrom String?          @map("discovered_from")
   outcome        DiscoveryOutcome
   /// Best match score at screening time.
   screeningScore Int?             @map("screening_score")
@@ -1374,6 +1397,14 @@ model JobSearchRun {
   jobsSkipped            Int                @default(0) @map("jobs_skipped")
   belowThreshold         Int                @default(0) @map("below_threshold")
   recommendationsCreated Int                @default(0) @map("recommendations_created")
+  /// Postings the sources returned, before the alert's criteria were applied.
+  jobsDiscovered         Int                @default(0) @map("jobs_discovered")
+  /// Postings matching a job the user already has (same posting, URL or company+title+location).
+  duplicates             Int                @default(0)
+  /// Jobs fully analysed against the user's active resumes in this run.
+  jobsAnalyzed           Int                @default(0) @map("jobs_analyzed")
+  /// The search terms actually used: the alert's own, completed from the Career Profile.
+  searchStrategy         Json?              @map("search_strategy")
   /// Per-source outcome: [{ sourceKey, status, found, error }]. Errors are safe messages only.
   sourceResults          Json?              @map("source_results")
   errorMessage           String?            @map("error_message")
@@ -1458,4 +1489,93 @@ model Notification {
   @@unique([userId, dedupKey])
   @@index([userId, readAt, createdAt])
   @@map("notifications")
+}
+
+// ─── Career intelligence (ADR-0019) ─────────────────────────────────────────
+// Analytics are computed on demand from applications, jobs, matches and interviews (the
+// source of truth). Only the generated insights are stored, as snapshots ("runs").
+
+enum CareerInsightCategory {
+  STRENGTH
+  WEAKNESS
+  OPPORTUNITY
+  RISK
+  RECOMMENDATION
+  SKILL_PRIORITY
+  RESUME_RECOMMENDATION
+  TARGETING_RECOMMENDATION
+  INTERVIEW_PREPARATION
+}
+
+enum InsightConfidence {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum CareerInsightRunStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+/// One generation of a user's career insights.
+model CareerInsightRun {
+  id                   String                 @id @default(uuid(7)) @db.Uuid
+  userId               String                 @map("user_id") @db.Uuid
+  status               CareerInsightRunStatus @default(PENDING)
+  /// MANUAL (Refresh insights) or AUTO (the analytics changed since the last run).
+  trigger              String
+  /// AI or RULES; null until completed.
+  source               GenerationSource?
+  provider             String?
+  model                String?
+  /// Fingerprint of the analytics facts the run used; a different current fingerprint = stale.
+  dataFingerprint      String                 @map("data_fingerprint") @db.Char(64)
+  analyticsVersion     String                 @map("analytics_version")
+  applicationsAnalysed Int                    @default(0) @map("applications_analysed")
+  /// E.g. why AI wasn't used.
+  note                 String?
+  error                String?
+  generatedAt          DateTime?              @map("generated_at") @db.Timestamptz(3)
+  expiresAt            DateTime?              @map("expires_at") @db.Timestamptz(3)
+  createdAt            DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  insights CareerInsight[]
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@map("career_insight_runs")
+}
+
+/// One evidence-based insight. Evidence holds the computed facts it cites (never AI text).
+model CareerInsight {
+  id                String                @id @default(uuid(7)) @db.Uuid
+  userId            String                @map("user_id") @db.Uuid
+  runId             String                @map("run_id") @db.Uuid
+  sortOrder         Int                   @map("sort_order")
+  category          CareerInsightCategory
+  title             String
+  explanation       String
+  /// [{ factId, statement, sampleSize }]: the computed facts this insight is based on.
+  evidence          Json
+  /// Fact ids cited (for audit and grouping).
+  evidenceRefs      String[]              @default([]) @map("evidence_refs")
+  confidence        InsightConfidence
+  recommendedAction String                @map("recommended_action")
+  sourceType        GenerationSource      @map("source_type")
+  generatedAt       DateTime              @map("generated_at") @db.Timestamptz(3)
+  expiresAt         DateTime?             @map("expires_at") @db.Timestamptz(3)
+  createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  run  CareerInsightRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([userId, category, generatedAt])
+  @@index([runId, sortOrder])
+  @@map("career_insights")
 }

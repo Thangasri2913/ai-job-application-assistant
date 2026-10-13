@@ -317,9 +317,13 @@ export function DashboardPage() {
           <CardHeader id="insights-heading" title="Insights" />
           <EmptyState
             icon={BarChart3}
-            title="Nothing to measure yet"
-            description="Response, interview and offer rates are calculated only from your real application history."
-          />
+            title="Career Intelligence"
+            description="Response, interview and offer rates, resume performance and skill insights — calculated only from your real application history."
+          >
+            <Link to="/career-intelligence" className="text-sm text-primary hover:underline">
+              Open Career Intelligence
+            </Link>
+          </EmptyState>
         </Card>
       </div>
     </>

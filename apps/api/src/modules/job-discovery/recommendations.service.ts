@@ -9,6 +9,8 @@ import { ApplicationsService } from '../applications/applications.service.js';
 import { AuditAction } from '../audit/audit-actions.js';
 import { AuditService } from '../audit/audit.service.js';
 import { JobsService } from '../jobs/jobs.service.js';
+import { SampleDataPolicy } from './sample-data-policy.js';
+import { JobSourceRegistry } from './sources/job-source-registry.js';
 import type { ListRecommendationsQueryDto } from './dto/job-alert.dto.js';
 import {
   RECOMMENDATION_INCLUDE,
@@ -32,7 +34,17 @@ export class RecommendationsService {
     private readonly audit: AuditService,
     private readonly jobs: JobsService,
     private readonly applications: ApplicationsService,
+    private readonly policy: SampleDataPolicy,
+    private readonly sources: JobSourceRegistry,
   ) {}
+
+  /** Excludes development sample data where it isn't allowed (production). */
+  private get jobFilter(): Prisma.JobRecommendationWhereInput {
+    return this.policy.allowSampleData ? {} : { job: { isSampleData: false } };
+  }
+
+  private toItem = (row: RecommendationRow): JobRecommendationItem =>
+    toRecommendationItem(row, (key) => this.sources.attributionFor(key));
 
   async list(userId: string, query: ListRecommendationsQueryDto): Promise<JobRecommendationItem[]> {
     await this.syncApplied(userId);
@@ -42,24 +54,45 @@ export class RecommendationsService {
         : query.status === 'ACTIVE'
           ? { not: 'DISMISSED' }
           : query.status;
+    const contains = (value: string | undefined) =>
+      value?.trim() ? { contains: value.trim(), mode: 'insensitive' as const } : undefined;
     const rows = await this.prisma.jobRecommendation.findMany({
       where: {
         userId,
         ...(status ? { status } : {}),
         ...(query.alertId ? { alertId: query.alertId } : {}),
+        ...(query.minScore !== undefined ? { matchScore: { gte: query.minScore } } : {}),
+        ...(query.source || query.workMode
+          ? {
+              discoveredJob: {
+                ...(query.source ? { source: { key: query.source } } : {}),
+                ...(query.workMode ? { workMode: query.workMode } : {}),
+              },
+            }
+          : {}),
+        AND: [
+          this.jobFilter,
+          {
+            job: {
+              title: contains(query.title),
+              companyName: contains(query.company),
+              location: contains(query.location),
+            },
+          },
+        ],
       },
       include: RECOMMENDATION_INCLUDE,
       orderBy: [{ rank: 'desc' }, { matchScore: 'desc' }, { createdAt: 'desc' }, { id: 'asc' }],
       take: LIST_LIMIT,
     });
-    return rows.map(toRecommendationItem);
+    return rows.map(this.toItem);
   }
 
   /** Opening a recommendation marks a NEW one as viewed. */
   async get(userId: string, id: string): Promise<JobRecommendationItem> {
     const row = await this.loadOwned(userId, id);
-    if (row.status !== 'NEW') return toRecommendationItem(row);
-    return toRecommendationItem(
+    if (row.status !== 'NEW') return this.toItem(row);
+    return this.toItem(
       await this.prisma.jobRecommendation.update({
         where: { id },
         data: { status: 'VIEWED', viewedAt: new Date() },
@@ -72,7 +105,7 @@ export class RecommendationsService {
   async save(userId: string, id: string, ctx: RequestContext): Promise<JobRecommendationItem> {
     const row = await this.loadOwned(userId, id);
     await this.jobs.addToLibrary(userId, row.jobId);
-    if (row.status === 'SAVED' || row.status === 'APPLIED') return toRecommendationItem(row);
+    if (row.status === 'SAVED' || row.status === 'APPLIED') return this.toItem(row);
     const updated = await this.prisma.jobRecommendation.update({
       where: { id },
       data: { status: 'SAVED', savedAt: new Date(), viewedAt: row.viewedAt ?? new Date() },
@@ -84,13 +117,13 @@ export class RecommendationsService {
       requestId: ctx.requestId,
       metadata: { recommendationId: id, jobId: row.jobId },
     });
-    return toRecommendationItem(updated);
+    return this.toItem(updated);
   }
 
   /** Hides the recommendation. Later runs never bring it back (one per user and job). */
   async dismiss(userId: string, id: string, ctx: RequestContext): Promise<JobRecommendationItem> {
     const row = await this.loadOwned(userId, id);
-    if (row.status === 'DISMISSED') return toRecommendationItem(row);
+    if (row.status === 'DISMISSED') return this.toItem(row);
     if (row.status === 'APPLIED') {
       throw new AppException(
         HttpStatus.CONFLICT,
@@ -109,14 +142,14 @@ export class RecommendationsService {
       requestId: ctx.requestId,
       metadata: { recommendationId: id, jobId: row.jobId },
     });
-    return toRecommendationItem(updated);
+    return this.toItem(updated);
   }
 
   /** Dashboard counts of NEW recommendations by match level. */
   async overview(userId: string): Promise<RecommendationOverview> {
     await this.syncApplied(userId);
     const rows = await this.prisma.jobRecommendation.findMany({
-      where: { userId, status: 'NEW' },
+      where: { userId, status: 'NEW', ...this.jobFilter },
       select: { matchScore: true },
     });
     return {
@@ -130,7 +163,7 @@ export class RecommendationsService {
   private async loadOwned(userId: string, id: string): Promise<RecommendationRow> {
     await this.syncApplied(userId);
     const row = await this.prisma.jobRecommendation.findFirst({
-      where: { id, userId },
+      where: { id, userId, ...this.jobFilter },
       include: RECOMMENDATION_INCLUDE,
     });
     if (!row) throw recommendationNotFound();

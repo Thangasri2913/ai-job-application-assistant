@@ -1,4 +1,8 @@
-import { type JobAlertItem, REMOTE_PREFERENCE_LABELS } from '@job-assist/shared';
+import {
+  type JobAlertItem,
+  type JobSearchRunItem,
+  REMOTE_PREFERENCE_LABELS,
+} from '@job-assist/shared';
 import { History, Pencil, Play, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
 import { Badge } from '../../../shared/ui/Badge';
@@ -83,6 +87,9 @@ export function JobAlertCard({
           </dd>
         </div>
       </dl>
+      {alert.lastRun && alert.lastRun.status !== 'RUNNING' ? (
+        <LastRunExplanation run={alert.lastRun} />
+      ) : null}
       <div className="mt-3 flex flex-wrap gap-2 border-t border-border pt-3">
         <Button size="sm" loading={running} disabled={inProgress} onClick={onRun}>
           <Play className="size-3.5" aria-hidden />
@@ -105,5 +112,32 @@ export function JobAlertCard({
         </Button>
       </div>
     </li>
+  );
+}
+
+/**
+ * Why the last run produced what it did: a failure reason, a note (e.g. no reviewed resume),
+ * or why it found nothing to recommend — so an empty result never looks like a broken feature.
+ */
+function LastRunExplanation({ run }: { run: JobSearchRunItem }) {
+  let text: string | null = null;
+  if (run.errorMessage) text = run.errorMessage;
+  else if (run.note) text = run.note;
+  else if (run.recommendationsCreated === 0) {
+    text =
+      run.jobsFound === 0
+        ? 'The last search found no jobs matching this alert’s keywords and criteria.'
+        : run.belowThreshold > 0 && run.belowThreshold === run.jobsFound
+          ? `The last search found ${run.jobsFound} job${run.jobsFound === 1 ? '' : 's'}, but none reached your minimum match score.`
+          : 'The last search found no new jobs (the ones it found were already known or recommended).';
+  }
+  if (!text) return null;
+  return (
+    <p
+      role={run.status === 'FAILED' ? 'alert' : undefined}
+      className={`mt-2 text-sm ${run.status === 'FAILED' ? 'text-danger' : 'text-muted'}`}
+    >
+      {text}
+    </p>
   );
 }
