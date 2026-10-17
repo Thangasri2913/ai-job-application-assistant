@@ -152,6 +152,34 @@ export const routes: RouteObject[] = [
             }),
           },
           {
+            path: 'smart-apply',
+            lazy: async () => ({
+              Component: (await import('./features/smart-apply/pages/SmartApplyPage'))
+                .SmartApplyPage,
+            }),
+          },
+          {
+            path: 'smart-apply/questions',
+            lazy: async () => ({
+              Component: (await import('./features/smart-apply/pages/QuestionInboxPage'))
+                .QuestionInboxPage,
+            }),
+          },
+          {
+            path: 'smart-apply/settings',
+            lazy: async () => ({
+              Component: (await import('./features/smart-apply/pages/SmartApplySettingsPage'))
+                .SmartApplySettingsPage,
+            }),
+          },
+          {
+            path: 'smart-apply/:id',
+            lazy: async () => ({
+              Component: (await import('./features/smart-apply/pages/SmartApplicationPage'))
+                .SmartApplicationPage,
+            }),
+          },
+          {
             path: 'interviews',
             lazy: async () => ({
               Component: (await import('./features/interviews/pages/InterviewHistoryPage'))

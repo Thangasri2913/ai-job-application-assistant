@@ -21,5 +21,6 @@
 | [0017](0017-interview-preparation.md)            | Interview practice and mock interviews: stored questions, immutable answers, separate evaluations, honest gap questions       | Accepted                                      |
 | [0018](0018-job-discovery-and-alerts.md)         | Job discovery & alerts: source adapters (dev fixtures only), per-user jobs, deterministic screening, idempotent runs          | Accepted                                      |
 | [0019](0019-career-intelligence.md)              | Career intelligence: outcome tracking, read-only analytics with sample-size guards, fact-cited insights (rules + optional AI) | Accepted                                      |
+| [0020](0020-smart-apply.md)                      | Smart Apply: hybrid submission (authorised integrations only, otherwise handoff), confirmed answers, idempotent attempts      | Accepted                                      |
 
 Template: Context → Decision → Consequences. Supersede rather than edit accepted ADRs; append an "Update" section for refinements.

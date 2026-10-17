@@ -62,7 +62,12 @@ export const JOB_RECOMMENDATION_STATUS_LABELS: Record<JobRecommendationStatus, s
 export const NOTIFICATION_CHANNELS = ['IN_APP', 'EMAIL', 'PUSH'] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
-export const NOTIFICATION_TYPES = ['NEW_RECOMMENDATIONS', 'ALERT_RUN_FAILED'] as const;
+export const NOTIFICATION_TYPES = [
+  'NEW_RECOMMENDATIONS',
+  'ALERT_RUN_FAILED',
+  'SMART_APPLY_INPUT_NEEDED',
+  'SMART_APPLY_SUBMISSION_UPDATE',
+] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
 export const JOB_ALERT_NAME_MAX_LENGTH = 100;

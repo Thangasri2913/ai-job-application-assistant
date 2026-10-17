@@ -116,6 +116,23 @@ export const envSchema = z.object({
   /** Lever data centre of the configured sites. */
   LEVER_REGION: z.enum(['global', 'eu']).default('global'),
 
+  /**
+   * Smart Apply (ADR-0020). Automatic submission is off unless explicitly enabled AND an
+   * authorised submission integration exists (none ships today); preparation and handoff to
+   * the official site always work.
+   */
+  SMART_APPLY_AUTO_SUBMIT_ENABLED: booleanString.default(false),
+  /** Background tasks (preparation, submission) run at once across all users. */
+  SMART_APPLY_MAX_CONCURRENT: z.coerce.number().int().min(1).max(10).default(2),
+  /** Attempts per application for retryable submission failures. */
+  SMART_APPLY_MAX_SUBMISSION_ATTEMPTS: z.coerce.number().int().min(1).max(5).default(3),
+  /** First retry delay; doubled for each further attempt (exponential backoff). */
+  SMART_APPLY_RETRY_BASE_SECONDS: z.coerce.number().int().min(1).max(3600).default(60),
+  /** How often due retries and reconciliations are checked. */
+  SMART_APPLY_WORKER_INTERVAL_SECONDS: z.coerce.number().int().min(5).default(30),
+  /** Read employers' public application questions (Greenhouse) when preparing. */
+  SMART_APPLY_FETCH_EMPLOYER_QUESTIONS: booleanString.default(true),
+
   RESUME_MAX_UPLOAD_BYTES: z.coerce
     .number()
     .int()

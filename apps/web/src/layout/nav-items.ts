@@ -10,6 +10,7 @@ import {
   Mic,
   Settings,
   Sparkles,
+  Wand2,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -25,6 +26,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { label: 'Jobs', icon: Briefcase, path: '/jobs', available: true },
   { label: 'Recommendations', icon: Sparkles, path: '/recommendations', available: true },
   { label: 'Job Alerts', icon: BellRing, path: '/job-alerts', available: true },
+  { label: 'Smart Apply', icon: Wand2, path: '/smart-apply', available: true },
   { label: 'Applications', icon: KanbanSquare, path: '/applications', available: true },
   { label: 'Resumes', icon: FileText, path: '/resumes', available: true },
   { label: 'Interview', icon: Mic, path: '/interviews', available: true },

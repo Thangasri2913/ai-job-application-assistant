@@ -18,6 +18,6 @@ import { PreparationContextLoader } from './preparation-context.loader.js';
   imports: [AiModule, ApplicationsModule, JobsModule, ProfileModule, ResumesModule],
   controllers: [ApplicationPreparationController],
   providers: [ApplicationPreparationService, PreparationAi, PreparationContextLoader],
-  exports: [PreparationContextLoader],
+  exports: [PreparationContextLoader, ApplicationPreparationService],
 })
 export class ApplicationPreparationModule {}

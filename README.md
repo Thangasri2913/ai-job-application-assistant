@@ -45,6 +45,8 @@ Full guide: [docs/LOCAL-DEVELOPMENT.md](docs/LOCAL-DEVELOPMENT.md).
 - [Architecture decision records](docs/adr/README.md)
 - [Local development](docs/LOCAL-DEVELOPMENT.md)
 - [Career Intelligence](docs/CAREER-INTELLIGENCE.md)
+- [Job discovery](docs/JOB-DISCOVERY.md)
+- [Smart Apply](docs/SMART-APPLY.md)
 - [Deployment (portfolio/testing: Vercel, Render, Neon, R2)](docs/DEPLOYMENT.md)
 - [Deployment automation (`scripts/deploy.sh`)](docs/DEPLOYMENT-AUTOMATION.md)
 

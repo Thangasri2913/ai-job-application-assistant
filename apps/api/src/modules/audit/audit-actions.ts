@@ -95,6 +95,16 @@ export const AuditAction = {
 
   CAREER_INSIGHTS_REQUESTED: 'career_insights.requested',
   CAREER_INSIGHTS_GENERATED: 'career_insights.generated',
+
+  SMART_APPLY_STATE_CHANGED: 'smart_apply.state_changed',
+  SMART_APPLY_ANSWER_CONFIRMED: 'smart_apply.answer_confirmed',
+  SMART_APPLY_ANSWER_SAVED: 'smart_apply.answer_saved',
+  SMART_APPLY_SAVED_ANSWER_DELETED: 'smart_apply.saved_answer_deleted',
+  SMART_APPLY_APPROVED: 'smart_apply.approved',
+  SMART_APPLY_SUBMISSION_REQUESTED: 'smart_apply.submission_requested',
+  SMART_APPLY_SUBMISSION_ATTEMPTED: 'smart_apply.submission_attempted',
+  SMART_APPLY_MANUAL_SUBMISSION: 'smart_apply.manual_submission',
+  SMART_APPLY_SETTINGS_UPDATED: 'smart_apply.settings_updated',
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

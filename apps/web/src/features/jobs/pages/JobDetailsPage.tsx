@@ -14,6 +14,7 @@ import { formatDate } from '../../../shared/ui/format';
 import { LoadingState } from '../../../shared/ui/LoadingState';
 import { PageHeader } from '../../../shared/ui/PageHeader';
 import { JobApplicationPanel } from '../../applications/components/JobApplicationPanel';
+import { PrepareApplicationButton } from '../../smart-apply/components/PrepareApplicationButton';
 import { RecommendationContext } from '../../job-discovery/components/RecommendationContext';
 import { SampleDataNotice } from '../../job-discovery/components/SampleDataNotice';
 import { attributionForJob } from '../../job-discovery/components/source-attribution';
@@ -299,6 +300,18 @@ export function JobDetailsPage() {
               matches={matches.data}
               preferredVersionId={alertRecommendation?.resume?.resumeVersionId ?? null}
             />
+            {!j.isSampleData && j.status !== 'ARCHIVED' ? (
+              <div className="mt-4 border-t border-border pt-4">
+                <p className="mb-2 text-sm text-muted">
+                  Smart Apply prepares the application, asks you for anything it doesn’t know and
+                  hands you the official application page.
+                </p>
+                <PrepareApplicationButton
+                  jobId={j.id}
+                  resumeVersionId={alertRecommendation?.resume?.resumeVersionId ?? null}
+                />
+              </div>
+            ) : null}
           </Card>
           {j.currentAnalysisId ? (
             <Card aria-labelledby="recommendation-heading">

@@ -10,6 +10,7 @@ import { Badge } from '../../../shared/ui/Badge';
 import { Button } from '../../../shared/ui/Button';
 import { buttonClasses } from '../../../shared/ui/button-classes';
 import { formatDate } from '../../../shared/ui/format';
+import { PrepareApplicationButton } from '../../smart-apply/components/PrepareApplicationButton';
 import { MatchScoreBadge } from './MatchScoreBadge';
 import { ResumeRecommendation } from './ResumeRecommendation';
 import { SampleDataNotice } from './SampleDataNotice';
@@ -108,6 +109,12 @@ export function JobRecommendationCard({
           >
             View job
           </Link>
+          {!terminal && !r.job.isSampleData ? (
+            <PrepareApplicationButton
+              jobId={r.job.id}
+              resumeVersionId={r.resume?.resumeVersionId ?? null}
+            />
+          ) : null}
           {r.status !== 'SAVED' && !terminal ? (
             <Button variant="secondary" size="sm" disabled={busy} onClick={onSave}>
               <Bookmark className="size-3.5" aria-hidden />
