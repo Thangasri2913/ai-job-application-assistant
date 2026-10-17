@@ -68,6 +68,12 @@ The tracker's `ApplicationStatus` is kept in step (PREPARING while preparing, AP
 - restart recovery;
 - graceful shutdown.
 
+**Mobile.** A separate Expo app (`apps/mobile`) uses the same API and the same Keycloak realm:
+
+- a public client using Authorization Code + PKCE;
+- tokens kept in secure storage only;
+- the API accepts the mobile client's `azp` only when `KEYCLOAK_MOBILE_CLIENT_ID` is set.
+
 ## Consequences
 
 - **Today, nothing is ever submitted by the app.** Users get prepared materials, guided answers and a reliable handoff. Adding a real integration means:

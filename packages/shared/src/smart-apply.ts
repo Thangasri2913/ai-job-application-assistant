@@ -348,7 +348,7 @@ export interface SmartApplyNotificationPayload {
   link: string;
 }
 
-// ─── Display (shared UI helpers) ──────────────────────────────────────────────
+// ─── Display (shared by web and mobile) ─────────────────────────────────────
 
 export type SmartApplyDisplayKind =
   | 'PREPARING'

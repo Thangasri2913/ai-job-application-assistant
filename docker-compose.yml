@@ -47,12 +47,16 @@ services:
       KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in .env}
-      # Tokens are issued for this exact URL (the issuer the API validates).
-      KC_HOSTNAME: http://localhost:${KEYCLOAK_HOST_PORT:-8180}
+      # Tokens are issued for this exact URL (the issuer the API validates). For sign-in from a
+      # phone over Wi-Fi set KEYCLOAK_PUBLIC_URL to http://<computer-LAN-IP>:8180 (and
+      # KEYCLOAK_ISSUER_URL / VITE_KEYCLOAK_URL to match) — see docs/MOBILE.md.
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://localhost:${KEYCLOAK_HOST_PORT:-8180}}
       KC_HTTP_ENABLED: 'true'
       KC_HEALTH_ENABLED: 'true'
     ports:
-      - '127.0.0.1:${KEYCLOAK_HOST_PORT:-8180}:8080'
+      # Local only by default. KEYCLOAK_BIND_ADDRESS=0.0.0.0 makes it reachable from devices on
+      # your network (development only: it also exposes the admin console on that network).
+      - '${KEYCLOAK_BIND_ADDRESS:-127.0.0.1}:${KEYCLOAK_HOST_PORT:-8180}:8080'
     volumes:
       - ./infrastructure/keycloak:/opt/keycloak/data/import:ro
     depends_on:

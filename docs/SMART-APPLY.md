@@ -182,4 +182,5 @@ To apply it locally, run `npm run db:migrate:deploy` with `.env` pointing at loc
   - `apps/web/src/features/smart-apply/pages/smart-apply.test.tsx`;
   - `apps/web/e2e/smart-apply-smoke.spec.ts`.
 - **Other changes:**
-  - AI prompts are hardened against instructions embedded in job or application text (`preparation@2`).
+  - AI prompts are hardened against instructions embedded in job or application text (`preparation@2`);
+  - the API accepts an optional `KEYCLOAK_MOBILE_CLIENT_ID`.

@@ -47,6 +47,7 @@ Full guide: [docs/LOCAL-DEVELOPMENT.md](docs/LOCAL-DEVELOPMENT.md).
 - [Career Intelligence](docs/CAREER-INTELLIGENCE.md)
 - [Job discovery](docs/JOB-DISCOVERY.md)
 - [Smart Apply](docs/SMART-APPLY.md)
+- [Android app](docs/MOBILE.md)
 - [Deployment (portfolio/testing: Vercel, Render, Neon, R2)](docs/DEPLOYMENT.md)
 - [Deployment automation (`scripts/deploy.sh`)](docs/DEPLOYMENT-AUTOMATION.md)
 
@@ -55,6 +56,7 @@ Full guide: [docs/LOCAL-DEVELOPMENT.md](docs/LOCAL-DEVELOPMENT.md).
 ```
 apps/api            NestJS API
 apps/web            React + Vite app
+apps/mobile         Android app (Expo + React Native; standalone package, see docs/MOBILE.md)
 packages/shared     Shared API contract types & domain constants
 infrastructure/     Docker init scripts, Keycloak realm import
 docs/               Specs, architecture, ADRs
