@@ -69,4 +69,40 @@ describe('KeycloakTokenVerifier', () => {
     expect(error).toBeInstanceOf(TokenVerificationError);
     expect((error as TokenVerificationError).reason).toBe('invalid');
   });
+
+  it('accepts the configured mobile client and nothing else', async () => {
+    const { verifier: webOnly, sign } = await setup();
+    const withMobile = {
+      get: (key: string) =>
+        key === 'KEYCLOAK_MOBILE_CLIENT_ID' ? 'ai-job-assistant-mobile' : config.get(key as never),
+    } as unknown as AppConfigService;
+    const { publicKey, privateKey } = await generateKeyPair('RS256');
+    const jwks = createLocalJWKSet({
+      keys: [{ ...(await exportJWK(publicKey)), kid: 'k1', alg: 'RS256' }],
+    });
+    const verifier = new KeycloakTokenVerifier(withMobile, () => Promise.resolve(jwks));
+    const token = (azp: string) =>
+      new SignJWT({
+        iss: ISSUER,
+        aud: 'ai-job-assistant-api',
+        azp,
+        typ: 'Bearer',
+        sub: 'kc-subject',
+      })
+        .setProtectedHeader({ alg: 'RS256', kid: 'k1' })
+        .setIssuedAt()
+        .setExpirationTime('5m')
+        .sign(privateKey);
+    await expect(verifier.verify(await token('ai-job-assistant-mobile'))).resolves.toMatchObject({
+      subject: 'kc-subject',
+    });
+    await expect(verifier.verify(await token('ai-job-assistant-web'))).resolves.toBeDefined();
+    await expect(verifier.verify(await token('other-client'))).rejects.toThrow(
+      TokenVerificationError,
+    );
+    // Without the setting, mobile tokens are refused.
+    await expect(webOnly.verify(await sign({ azp: 'ai-job-assistant-mobile' }))).rejects.toThrow(
+      TokenVerificationError,
+    );
+  });
 });

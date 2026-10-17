@@ -81,7 +81,8 @@ export class KeycloakJwksResolver {
 export class KeycloakTokenVerifier {
   private readonly issuer: string;
   private readonly audience: string;
-  private readonly clientId: string;
+  /** Clients whose access tokens are accepted: the web app and, if configured, the mobile app. */
+  private readonly clientIds: string[];
 
   constructor(
     config: AppConfigService,
@@ -89,7 +90,11 @@ export class KeycloakTokenVerifier {
   ) {
     this.issuer = config.get('KEYCLOAK_ISSUER_URL', { infer: true });
     this.audience = config.get('KEYCLOAK_AUDIENCE', { infer: true });
-    this.clientId = config.get('KEYCLOAK_CLIENT_ID', { infer: true });
+    const mobile = config.get('KEYCLOAK_MOBILE_CLIENT_ID', { infer: true });
+    this.clientIds = [
+      config.get('KEYCLOAK_CLIENT_ID', { infer: true }),
+      ...(mobile ? [mobile] : []),
+    ];
   }
 
   async verify(token: string): Promise<IdentityClaims> {
@@ -118,8 +123,13 @@ export class KeycloakTokenVerifier {
       throw new TokenVerificationError('invalid');
     }
 
-    // Only access tokens issued to our web client are accepted (not ID/refresh tokens).
-    if (payload.typ !== 'Bearer' || payload.azp !== this.clientId || !payload.sub) {
+    // Only access tokens issued to our own clients are accepted (not ID/refresh tokens).
+    if (
+      payload.typ !== 'Bearer' ||
+      !payload.azp ||
+      !this.clientIds.includes(payload.azp) ||
+      !payload.sub
+    ) {
       throw new TokenVerificationError('invalid');
     }
 

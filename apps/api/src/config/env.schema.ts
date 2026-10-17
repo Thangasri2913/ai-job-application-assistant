@@ -30,6 +30,11 @@ export const envSchema = z.object({
   KEYCLOAK_ISSUER_URL: z.url().transform((v) => v.replace(/\/+$/, '')),
   /** Client id of the web app; tokens must have been issued to it (`azp`). */
   KEYCLOAK_CLIENT_ID: z.string().min(1),
+  /**
+   * Optional public client of the Android app (Authorization Code + PKCE, no secret). When
+   * set, access tokens issued to it are accepted too (same issuer and audience checks).
+   */
+  KEYCLOAK_MOBILE_CLIENT_ID: z.string().min(1).optional(),
   /** Audience this API requires in access tokens (`aud`). */
   KEYCLOAK_AUDIENCE: z.string().min(1),
 
