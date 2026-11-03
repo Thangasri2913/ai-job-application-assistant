@@ -18,6 +18,8 @@ import { HealthModule } from './modules/health/health.module.js';
 import { InterviewsModule } from './modules/interviews/interviews.module.js';
 import { CareerIntelligenceModule } from './modules/career-intelligence/career-intelligence.module.js';
 import { SmartApplyModule } from './modules/smart-apply/smart-apply.module.js';
+import { LearningModule } from './modules/learning/learning.module.js';
+import { MentorModule } from './modules/mentor/mentor.module.js';
 import { JobDiscoveryModule } from './modules/job-discovery/job-discovery.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { JobsModule } from './modules/jobs/jobs.module.js';
@@ -114,6 +116,8 @@ const REQUEST_ID_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
     JobDiscoveryModule,
     CareerIntelligenceModule,
     SmartApplyModule,
+    LearningModule,
+    MentorModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

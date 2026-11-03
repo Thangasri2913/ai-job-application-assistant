@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AiNotConfiguredError, AiOutputValidationError } from './ai.errors.js';
+import { AiAbortedError, AiNotConfiguredError, AiOutputValidationError } from './ai.errors.js';
 import { AiService } from './ai.service.js';
 import { MockAiProvider } from './providers/mock-ai.provider.js';
 import { UnconfiguredAiProvider } from './providers/unconfigured-ai.provider.js';
@@ -44,5 +44,28 @@ describe('AiService', () => {
     await expect(
       new AiService(new UnconfiguredAiProvider()).generateStructured(task),
     ).rejects.toBeInstanceOf(AiNotConfiguredError);
+  });
+
+  it('does not call the provider when the signal is already aborted', async () => {
+    const provider = new MockAiProvider().respondTo(task.task, { skills: [] });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      new AiService(provider).generateStructured({ ...task, signal: controller.signal }),
+    ).rejects.toBeInstanceOf(AiAbortedError);
+    expect(provider.requests).toHaveLength(0);
+  });
+
+  it('passes the signal to the provider, which abandons the request when it aborts', async () => {
+    const provider = new MockAiProvider().respondTo(task.task, { skills: [] }, { delayMs: 5_000 });
+    const controller = new AbortController();
+    const pending = new AiService(provider).generateStructured({
+      ...task,
+      signal: controller.signal,
+    });
+    controller.abort();
+    await expect(pending).rejects.toBeInstanceOf(AiAbortedError);
+    expect(provider.requests[0]!.signal).toBe(controller.signal);
+    expect(provider.cancelled).toBe(1);
   });
 });

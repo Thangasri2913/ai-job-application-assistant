@@ -1,0 +1,33 @@
+{
+  "name": "@job-assist/career-mentor-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bounded Career Mentor agent: fixed intents, approved read-only tools, rule-based answers and optional checked AI composition through an injected model port.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@job-assist/shared": "*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "~5.9.2",
+    "vitest": "^4.1.11"
+  }
+}

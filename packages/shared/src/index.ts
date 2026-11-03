@@ -10,3 +10,5 @@ export * from './interviews.js';
 export * from './discovery.js';
 export * from './career-intelligence.js';
 export * from './smart-apply.js';
+export * from './learning.js';
+export * from './mentor.js';

@@ -34,33 +34,41 @@ model User {
   createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  auditLogs          AuditLog[]
-  profile            UserProfile?
-  skills             Skill[]
-  experiences        Experience[]
-  educations         Education[]
-  projects           Project[]
-  certifications     Certification[]
-  languages          ProfileLanguage[]
-  achievements       Achievement[]
-  resumes            Resume[]
-  resumeFiles        ResumeFile[]
-  defaultResume      DefaultResume?
-  jobs               Job[]
-  applications       Application[]
-  preparations       ApplicationPreparation[]
-  aiUsage            AiUsage[]
-  interviewSessions  InterviewSession[]
-  jobSearchAlerts    JobSearchAlert[]
-  jobSearchRuns      JobSearchRun[]
-  discoveredJobs     DiscoveredJob[]
-  jobRecommendations JobRecommendation[]
-  notifications      Notification[]
-  careerInsightRuns  CareerInsightRun[]
-  careerInsights     CareerInsight[]
-  smartApplications  SmartApplication[]
-  smartApplySettings SmartApplySettings?
-  profileAnswers     ProfileAnswer[]
+  auditLogs                  AuditLog[]
+  profile                    UserProfile?
+  skills                     Skill[]
+  experiences                Experience[]
+  educations                 Education[]
+  projects                   Project[]
+  certifications             Certification[]
+  languages                  ProfileLanguage[]
+  achievements               Achievement[]
+  resumes                    Resume[]
+  resumeFiles                ResumeFile[]
+  defaultResume              DefaultResume?
+  jobs                       Job[]
+  applications               Application[]
+  preparations               ApplicationPreparation[]
+  aiUsage                    AiUsage[]
+  interviewSessions          InterviewSession[]
+  jobSearchAlerts            JobSearchAlert[]
+  jobSearchRuns              JobSearchRun[]
+  discoveredJobs             DiscoveredJob[]
+  jobRecommendations         JobRecommendation[]
+  notifications              Notification[]
+  careerInsightRuns          CareerInsightRun[]
+  careerInsights             CareerInsight[]
+  smartApplications          SmartApplication[]
+  smartApplySettings         SmartApplySettings?
+  profileAnswers             ProfileAnswer[]
+  learningEnrollments        LearningEnrollment[]
+  learningLessonCompletions  LearningLessonCompletion[]
+  learningActivityAttempts   LearningActivityAttempt[]
+  learningAssessmentAttempts LearningAssessmentAttempt[]
+  learningSkillEvidence      LearningSkillEvidence[]
+  learningInterviewAttempts  LearningInterviewAttempt[]
+  learningProjectProgress    LearningProjectProgress[]
+  learningPreferences        LearningPreferences?
 
   @@index([email])
   @@map("users")
@@ -1766,4 +1774,170 @@ model ProfileAnswer {
 
   @@unique([userId, answerKey])
   @@map("profile_answers")
+}
+
+// ─── Learn & Prepare progress (ADR-0022) ────────────────────────────────────
+// Course, lesson, activity and skill ids refer to the static, versioned catalogue in
+// apps/api/src/modules/learning/catalogue (ADR-0021), so they are plain text, not foreign keys.
+// Completion, practice attempts, assessments and skill evidence are kept apart on purpose:
+// finishing a lesson is not evidence of skill.
+
+/// A course the user selected ("My learning").
+model LearningEnrollment {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  courseId  String   @map("course_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@map("learning_enrollments")
+}
+
+/// The user marked a lesson complete (self-reported, not an assessment).
+model LearningLessonCompletion {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  courseId    String   @map("course_id")
+  lessonId    String   @map("lesson_id")
+  completedAt DateTime @default(now()) @map("completed_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId, lessonId])
+  @@map("learning_lesson_completions")
+}
+
+/// One practice-activity submission, graded on the server. Append-only.
+model LearningActivityAttempt {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  courseId   String   @map("course_id")
+  lessonId   String   @map("lesson_id")
+  activityId String   @map("activity_id")
+  /// The submitted answer as validated by the API (bounded size; never resume data).
+  answer     Json
+  /// Null for self-reported activities (checklists).
+  correct    Boolean?
+  score      Decimal? @db.Decimal(4, 3)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, courseId, createdAt])
+  @@map("learning_activity_attempts")
+}
+
+enum LearningAssessmentKind {
+  DIAGNOSTIC
+}
+
+/// One completed assessment with its graded results. Append-only.
+model LearningAssessmentAttempt {
+  id        String                 @id @default(uuid(7)) @db.Uuid
+  userId    String                 @map("user_id") @db.Uuid
+  courseId  String                 @map("course_id")
+  kind      LearningAssessmentKind
+  score     Int
+  maxScore  Int                    @map("max_score")
+  /// Per-question and per-topic results as returned to the user.
+  results   Json
+  createdAt DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user          User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skillEvidence LearningSkillEvidence[]
+
+  @@index([userId, courseId, createdAt])
+  @@map("learning_assessment_attempts")
+}
+
+/// Demonstrated-skill evidence from an assessment — separate from lesson completion and from
+/// anything read in a resume.
+model LearningSkillEvidence {
+  id                  String   @id @default(uuid(7)) @db.Uuid
+  userId              String   @map("user_id") @db.Uuid
+  skillId             String   @map("skill_id")
+  assessmentAttemptId String   @map("assessment_attempt_id") @db.Uuid
+  correct             Int
+  total               Int
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user              User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assessmentAttempt LearningAssessmentAttempt @relation(fields: [assessmentAttemptId], references: [id], onDelete: Cascade)
+
+  @@index([userId, skillId, createdAt])
+  @@index([assessmentAttemptId])
+  @@map("learning_skill_evidence")
+}
+
+// ─── Learn & Prepare: interview practice and project challenges (ADR-0023) ───
+// Question and challenge ids refer to the static catalogue in code, as in ADR-0022.
+
+/// One written answer to a skill-based interview practice question, with its rule-based
+/// feedback as shown to the user. Append-only; retries add rows. Holds no resume data.
+model LearningInterviewAttempt {
+  id               String   @id @default(uuid(7)) @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  questionId       String   @map("question_id")
+  skillId          String   @map("skill_id")
+  answer           String
+  /// Feedback as returned (dimensions, covered/missing concepts, advice). Rubric version inside.
+  feedback         Json
+  correctnessScore Decimal  @map("correctness_score") @db.Decimal(3, 1)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, questionId, createdAt])
+  @@index([userId, createdAt])
+  @@map("learning_interview_attempts")
+}
+
+enum LearningProjectStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+/// Self-reported progress on a project challenge. Never "verified": JobAssist does not run or
+/// inspect project code.
+model LearningProjectProgress {
+  id             String                @id @default(uuid(7)) @db.Uuid
+  userId         String                @map("user_id") @db.Uuid
+  challengeId    String                @map("challenge_id")
+  status         LearningProjectStatus @default(NOT_STARTED)
+  /// Ticked acceptance-criteria and self-review item ids (validated against the catalogue).
+  checkedItemIds String[]              @default([]) @map("checked_item_ids")
+  startedAt      DateTime?             @map("started_at") @db.Timestamptz(3)
+  completedAt    DateTime?             @map("completed_at") @db.Timestamptz(3)
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, challengeId])
+  @@map("learning_project_progress")
+}
+
+// ─── Learn & Prepare: learner preferences (ADR-0024) ─────────────────────────
+
+/// Optional learning preferences, one row per user. Every field is optional: learning works
+/// without any of them. Values are catalogue ids validated by the API (not resume data).
+model LearningPreferences {
+  userId             String   @id @map("user_id") @db.Uuid
+  /// A LEARNING_ROLES value, or null for "no target role".
+  targetRole         String?  @map("target_role")
+  interestCategories String[] @default([]) @map("interest_categories")
+  interestSkillIds   String[] @default([]) @map("interest_skill_ids")
+  weeklyGoalMinutes  Int?     @map("weekly_goal_minutes")
+  /// Dismissed next-step keys with the time they were dismissed ([{ key, dismissedAt }]).
+  dismissedSteps     Json     @default("[]") @map("dismissed_steps")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("learning_preferences")
 }

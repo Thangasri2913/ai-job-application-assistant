@@ -25,6 +25,29 @@ describe('validateEnv', () => {
     expect(env.NODE_ENV).toBe('development');
   });
 
+  it('keeps the Career Mentor AI provider separate, off by default, and validated', () => {
+    const env = validateEnv(valid);
+    expect(env.MENTOR_AI_PROVIDER).toBe('none');
+    expect(env.AI_PROVIDER).toBe('none');
+    const mentorOn = validateEnv({ ...valid, MENTOR_AI_PROVIDER: 'anthropic' });
+    expect(mentorOn).toMatchObject({ MENTOR_AI_PROVIDER: 'anthropic', AI_PROVIDER: 'none' });
+    // No key is required by validation: credentials are only needed once the mentor calls out.
+    expect(mentorOn.ANTHROPIC_API_KEY).toBeUndefined();
+    for (const invalid of ['mock', 'openai', 'Anthropic', 'true', ''])
+      expect(() => validateEnv({ ...valid, MENTOR_AI_PROVIDER: invalid })).toThrow(
+        /MENTOR_AI_PROVIDER/,
+      );
+    // Allowed in production too (it is opt-in and off by default).
+    expect(
+      validateEnv({
+        ...valid,
+        NODE_ENV: 'production',
+        CORS_ORIGINS: 'https://app.example',
+        MENTOR_AI_PROVIDER: 'anthropic',
+      }).MENTOR_AI_PROVIDER,
+    ).toBe('anthropic');
+  });
+
   it('normalises the Keycloak issuer and requires the client settings', () => {
     expect(validateEnv(valid).KEYCLOAK_ISSUER_URL).toBe(
       'http://localhost:8180/realms/ai-job-assistant',

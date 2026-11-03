@@ -47,6 +47,7 @@ Full guide: [docs/LOCAL-DEVELOPMENT.md](docs/LOCAL-DEVELOPMENT.md).
 - [Career Intelligence](docs/CAREER-INTELLIGENCE.md)
 - [Job discovery](docs/JOB-DISCOVERY.md)
 - [Smart Apply](docs/SMART-APPLY.md)
+- [Learn & Prepare](docs/LEARN-AND-PREPARE.md)
 - [Android app](docs/MOBILE.md)
 - [Deployment (portfolio/testing: Vercel, Render, Neon, R2)](docs/DEPLOYMENT.md)
 - [Deployment automation (`scripts/deploy.sh`)](docs/DEPLOYMENT-AUTOMATION.md)

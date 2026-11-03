@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { AiProvider, StructuredGenerationRequest } from '../ai-provider.js';
-import { AiProviderError } from '../ai.errors.js';
+import { AiAbortedError, AiProviderError } from '../ai.errors.js';
 import { toStructuredOutputSchema } from './structured-output-schema.js';
 
 export interface AnthropicProviderOptions {
@@ -34,21 +34,27 @@ export class AnthropicAiProvider implements AiProvider {
   async generateStructured(request: StructuredGenerationRequest): Promise<unknown> {
     let response: Anthropic.Beta.BetaMessage;
     try {
-      response = await this.client.beta.messages.create({
-        model: this.options.model,
-        max_tokens: this.options.maxTokens ?? 16_000,
-        // If the model declines, Anthropic retries on its recommended fallback model.
-        betas: ['server-side-fallback-2026-07-01'],
-        fallbacks: 'default',
-        system: request.system,
-        messages: [{ role: 'user', content: request.input }],
-        // Extraction is a routine task: low effort keeps latency and cost down.
-        output_config: {
-          effort: 'low',
-          format: { type: 'json_schema', schema: toStructuredOutputSchema(request.outputSchema) },
+      response = await this.client.beta.messages.create(
+        {
+          model: this.options.model,
+          max_tokens: this.options.maxTokens ?? 16_000,
+          // If the model declines, Anthropic retries on its recommended fallback model.
+          betas: ['server-side-fallback-2026-07-01'],
+          fallbacks: 'default',
+          system: request.system,
+          messages: [{ role: 'user', content: request.input }],
+          // Extraction is a routine task: low effort keeps latency and cost down.
+          output_config: {
+            effort: 'low',
+            format: { type: 'json_schema', schema: toStructuredOutputSchema(request.outputSchema) },
+          },
         },
-      });
+        // The SDK aborts the in-flight HTTP request and skips remaining retries on abort.
+        request.signal ? { signal: request.signal } : undefined,
+      );
     } catch (error) {
+      if (error instanceof Anthropic.APIUserAbortError || request.signal?.aborted)
+        throw new AiAbortedError();
       throw toProviderError(error);
     }
 

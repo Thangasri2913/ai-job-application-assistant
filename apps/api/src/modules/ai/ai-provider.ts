@@ -12,6 +12,11 @@ export interface StructuredGenerationRequest {
   input: string;
   /** JSON Schema the provider must constrain its output to (structured outputs / tool schema). */
   outputSchema: Record<string, unknown>;
+  /**
+   * Optional cancellation. When it aborts, providers should cancel the underlying request
+   * (and any retries) and reject with AiAbortedError.
+   */
+  signal?: AbortSignal;
 }
 
 export interface AiProvider {

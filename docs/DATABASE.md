@@ -15,18 +15,21 @@ PostgreSQL 16, accessed through Prisma 7 (`apps/api/prisma/schema.prisma`). ORM 
 
 ## Migrations
 
-| Migration                                          | Contents                                                                                                                                                                                                                                |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `init`                                             | users, sessions, audit_logs                                                                                                                                                                                                             |
-| `career_profile_and_resume_library`                | profile tables, resumes, resume_versions, default_resumes                                                                                                                                                                               |
-| `parse_status_needs_review`                        | `NEEDS_REVIEW` parse status (kept separate: Postgres can't use a new enum value in the transaction that adds it)                                                                                                                        |
-| `profile_extensions_and_normalized_resume_content` | salary range, employment types, languages, achievements, `sort_order`; `resumes.category`; `resume_files`; normalised resume content. Moves existing data and drops the old JSON column.                                                |
-| `keycloak_identity`                                | Adds `users.keycloak_subject` (unique); `users.email` becomes a non-unique index; drops `users.password_hash` and the `sessions` table ([ADR-0013](adr/0013-keycloak-identity-provider.md)). Back up first: the drops are irreversible. |
-| `profile_headline`                                 | Nullable `headline` on `user_profiles` and `resume_versions` (additive).                                                                                                                                                                |
-| `jobs_and_resume_matching`                         | `jobs`, `job_analyses`, `job_requirements`, `match_analyses`, `resume_recommendations` and their enums (additive; [ADR-0014](adr/0014-job-analysis-and-resume-matching.md)).                                                            |
-| `application_tracking`                             | `applications`, `application_status_history`, `application_notes`, `application_documents` and their enums (additive; [ADR-0015](adr/0015-application-tracking.md)).                                                                    |
-| `application_preparation`                          | `application_preparations`, `resume_suggestions`, `cover_letter_versions`, `application_questions`, `ai_usage` and their enums (additive; [ADR-0016](adr/0016-ai-application-preparation.md)).                                          |
-| `interview_preparation`                            | `interview_sessions`, `interview_questions`, `interview_answers`, `interview_evaluations` and their enums (additive; [ADR-0017](adr/0017-interview-preparation.md)).                                                                    |
+| Migration                                          | Contents                                                                                                                                                                                                                                                  |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init`                                             | users, sessions, audit_logs                                                                                                                                                                                                                               |
+| `career_profile_and_resume_library`                | profile tables, resumes, resume_versions, default_resumes                                                                                                                                                                                                 |
+| `parse_status_needs_review`                        | `NEEDS_REVIEW` parse status (kept separate: Postgres can't use a new enum value in the transaction that adds it)                                                                                                                                          |
+| `profile_extensions_and_normalized_resume_content` | salary range, employment types, languages, achievements, `sort_order`; `resumes.category`; `resume_files`; normalised resume content. Moves existing data and drops the old JSON column.                                                                  |
+| `keycloak_identity`                                | Adds `users.keycloak_subject` (unique); `users.email` becomes a non-unique index; drops `users.password_hash` and the `sessions` table ([ADR-0013](adr/0013-keycloak-identity-provider.md)). Back up first: the drops are irreversible.                   |
+| `profile_headline`                                 | Nullable `headline` on `user_profiles` and `resume_versions` (additive).                                                                                                                                                                                  |
+| `jobs_and_resume_matching`                         | `jobs`, `job_analyses`, `job_requirements`, `match_analyses`, `resume_recommendations` and their enums (additive; [ADR-0014](adr/0014-job-analysis-and-resume-matching.md)).                                                                              |
+| `application_tracking`                             | `applications`, `application_status_history`, `application_notes`, `application_documents` and their enums (additive; [ADR-0015](adr/0015-application-tracking.md)).                                                                                      |
+| `application_preparation`                          | `application_preparations`, `resume_suggestions`, `cover_letter_versions`, `application_questions`, `ai_usage` and their enums (additive; [ADR-0016](adr/0016-ai-application-preparation.md)).                                                            |
+| `interview_preparation`                            | `interview_sessions`, `interview_questions`, `interview_answers`, `interview_evaluations` and their enums (additive; [ADR-0017](adr/0017-interview-preparation.md)).                                                                                      |
+| `learning_progress`                                | `learning_enrollments`, `learning_lesson_completions`, `learning_activity_attempts`, `learning_assessment_attempts`, `learning_skill_evidence` and `LearningAssessmentKind` (additive; [ADR-0022](adr/0022-interactive-learning-and-recommendations.md)). |
+| `learning_practice_and_projects`                   | `learning_interview_attempts`, `learning_project_progress` and `LearningProjectStatus` (additive; [ADR-0023](adr/0023-practice-projects-and-job-readiness.md)).                                                                                           |
+| `learning_preferences`                             | `learning_preferences`: optional target role, interests, weekly goal and dismissed next steps, one row per user (additive; [ADR-0024](adr/0024-adaptive-learning-revision-analytics.md)).                                                                 |
 
 ## Schema
 
@@ -142,6 +145,31 @@ Rules: at most one non-archived application per job (enforced by the service und
 | `career_insights`     | Per run: category, title, explanation, `evidence` (JSONB: cited facts' computed statements), `evidence_refs[]`, confidence (LOW/MEDIUM/HIGH), recommended action, source type, timestamps. Index `(user_id, category, generated_at)`                           |
 
 `applications` gains `rejection_category` (enum, voluntary) and `offer_details`; `application_status_history` gains `occurred_on` (date the step happened). `ApplicationStatus` gains `TECHNICAL_INTERVIEW` and `ACCEPTED`. Analytics themselves are not stored: they are computed from these tables on request.
+
+### Learn & Prepare
+
+The catalogue (courses, lessons, activities, skills, roles) is static content in code ([ADR-0021](adr/0021-learn-and-prepare.md)). The tables below store catalogue ids as text, not as foreign keys. Every row belongs to a user and cascades when that user is deleted.
+
+| Table                          | Notes                                                                                                                                                           |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `learning_enrollments`         | Courses the user selected. Unique `(user_id, course_id)`                                                                                                        |
+| `learning_lesson_completions`  | Lessons marked complete (self-reported; not skill evidence). Unique `(user_id, course_id, lesson_id)`                                                           |
+| `learning_activity_attempts`   | Append-only practice submissions: validated `answer` (JSONB, bounded), `correct` (null for checklists), `score` (0–1). Index `(user_id, course_id, created_at)` |
+| `learning_assessment_attempts` | Diagnostic results: `kind` (DIAGNOSTIC), `score`, `max_score`, `results` (JSONB per topic and question). Append-only                                            |
+| `learning_skill_evidence`      | Correct/total per skill, derived **only** from an assessment attempt (cascades with it). Index `(user_id, skill_id, created_at)`                                |
+
+Interview practice and project challenges ([ADR-0023](adr/0023-practice-projects-and-job-readiness.md)):
+
+| Table                         | Notes                                                                                                                                                                                                                                                                         |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `learning_interview_attempts` | Append-only written answers to practice questions: `question_id`, `skill_id`, `answer`, `feedback` (JSONB, the rule-based feedback with its rubric version) and `correctness_score`. Indexes `(user_id, question_id, created_at)` and `(user_id, created_at)`. No resume data |
+| `learning_project_progress`   | Self-reported challenge progress: `status` (NOT_STARTED/IN_PROGRESS/COMPLETED), `checked_item_ids`, `started_at` and `completed_at`. Unique `(user_id, challenge_id)`                                                                                                         |
+
+Learner preferences ([ADR-0024](adr/0024-adaptive-learning-revision-analytics.md)). Revision, next steps and analytics are computed from the tables above and are not stored.
+
+| Table                  | Notes                                                                                                                                                                                                                                                 |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `learning_preferences` | Primary key `user_id`. `target_role` (a LEARNING_ROLES value or null), `interest_categories[]`, `interest_skill_ids[]`, `weekly_goal_minutes`, `dismissed_steps` (JSONB `[{ key, dismissedAt }]`, at most 100). Catalogue values only; no resume data |
 
 ## Prisma commands
 

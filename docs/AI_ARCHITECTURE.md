@@ -1,6 +1,6 @@
 # AI Architecture
 
-Status: AI is **optional** and used for **structuring uploaded resumes**, **extracting job requirements** **application preparation** (resume rewrites, cover letters, application answers) and **interview practice** (questions, answer feedback, report summary). Scoring and recommendations never use AI. With `AI_PROVIDER=none` every feature still works, using deterministic, grounded drafts. With the default `AI_PROVIDER=none`, resumes are parsed by the deterministic parser only, and every feature works. Decision records: [ADR-0003](adr/0003-ai-provider-abstraction.md), [ADR-0011](adr/0011-resume-parsing-pipeline.md).
+Status: AI is **optional** and used for **structuring uploaded resumes**, **extracting job requirements** **application preparation** (resume rewrites, cover letters, application answers), **interview practice** (questions, answer feedback, report summary) and the **Career Mentor** (choosing and ordering verified suggestions only; all wording is rule-based or fixed templates; see [AI-CAREER-MENTOR-ARCHITECTURE.md](AI-CAREER-MENTOR-ARCHITECTURE.md)). Scoring and recommendations never use AI. With `AI_PROVIDER=none` every feature still works, using deterministic, grounded drafts. With the default `AI_PROVIDER=none`, resumes are parsed by the deterministic parser only, and every feature works. Decision records: [ADR-0003](adr/0003-ai-provider-abstraction.md), [ADR-0011](adr/0011-resume-parsing-pipeline.md).
 
 ## Layers
 

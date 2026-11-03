@@ -12,12 +12,15 @@ ENV DATABASE_URL=postgresql://build:build@localhost:5432/build
 
 COPY package.json package-lock.json .npmrc ./
 COPY packages/shared packages/shared
+COPY packages/career-mentor-agent packages/career-mentor-agent
 COPY apps/api/package.json apps/api/prisma.config.ts apps/api/
 COPY apps/api/prisma apps/api/prisma
-# Only the API and shared workspaces (the web app is built and hosted separately).
-RUN npm ci --workspace=@job-assist/api --workspace=@job-assist/shared --include-workspace-root
+# Only the API and the packages it uses (the web app is built and hosted separately).
+RUN npm ci --workspace=@job-assist/api --workspace=@job-assist/shared \
+  --workspace=@job-assist/career-mentor-agent --include-workspace-root
 
 COPY apps/api apps/api
+# The API's prebuild step compiles @job-assist/career-mentor-agent first.
 RUN npm run build -w @job-assist/api
 
 FROM node:22-bookworm-slim AS runtime

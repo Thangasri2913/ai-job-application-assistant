@@ -9,17 +9,19 @@
   },
   "workspaces": [
     "packages/shared",
+    "packages/career-mentor-agent",
     "apps/api",
     "apps/web"
   ],
   "scripts": {
     "build:shared": "npm run build -w @job-assist/shared",
+    "build:agent": "npm run build -w @job-assist/career-mentor-agent",
     "build": "npm run build:shared && npm run build -w @job-assist/api && npm run build -w @job-assist/web",
     "dev": "bash scripts/dev.sh",
     "dev:api": "npm run start:dev -w @job-assist/api",
     "dev:web": "npm run start -w @job-assist/web",
     "lint": "npm run lint -w @job-assist/api && npm run lint -w @job-assist/web",
-    "test": "npm run test -w @job-assist/api && npm run test -w @job-assist/web",
+    "test": "npm run test -w @job-assist/career-mentor-agent && npm run test -w @job-assist/api && npm run test -w @job-assist/web",
     "test:e2e": "npm run test:e2e -w @job-assist/api",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "format": "prettier --write .",

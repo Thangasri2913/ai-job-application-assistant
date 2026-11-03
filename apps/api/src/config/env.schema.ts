@@ -49,6 +49,21 @@ export const envSchema = z.object({
   AI_MODEL: z.string().min(1).default('claude-opus-5'),
   /** Optional: the Anthropic SDK also resolves credentials from its own environment/profile. */
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  /**
+   * AI provider for the Career Mentor only, independent of AI_PROVIDER (which governs every
+   * other AI feature). `none` (default): rule-based mentor answers. `anthropic`: the mentor
+   * may ask the model to choose and order its verified suggestions. Uses AI_MODEL and the
+   * Anthropic credentials (ANTHROPIC_API_KEY, or the SDK's own credential resolution).
+   */
+  MENTOR_AI_PROVIDER: z.enum(['none', 'anthropic']).default('none'),
+  /**
+   * Career Mentor AI allowance per user: at most this many AI-composed answers per
+   * MENTOR_AI_USER_WINDOW_SECONDS (counted from ai_usage, so it survives restarts). When used up,
+   * the mentor still answers by rules. Only applies when MENTOR_AI_PROVIDER is not none
+   * (AI_PROVIDER does not affect the mentor).
+   */
+  MENTOR_AI_USER_LIMIT: z.coerce.number().int().min(0).default(20),
+  MENTOR_AI_USER_WINDOW_SECONDS: z.coerce.number().int().min(60).default(86_400),
 
   S3_ENDPOINT: z.url().optional(),
   S3_REGION: z.string().min(1).default('us-east-1'),

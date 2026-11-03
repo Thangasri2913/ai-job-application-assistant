@@ -18,6 +18,14 @@ export class AiOutputValidationError extends Error {
   }
 }
 
+/** The caller cancelled the request (e.g. a deadline passed). Not retryable; nothing to persist. */
+export class AiAbortedError extends Error {
+  constructor() {
+    super('The AI request was cancelled.');
+    this.name = 'AiAbortedError';
+  }
+}
+
 /** The provider call itself failed (network, rate limit, refusal, truncated output). */
 export class AiProviderError extends Error {
   constructor(

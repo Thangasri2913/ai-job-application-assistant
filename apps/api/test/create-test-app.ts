@@ -4,15 +4,21 @@ import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/bootstrap/configure-app.js';
 import { PrismaService } from '../src/database/prisma.service.js';
 import { AI_PROVIDER, type AiProvider } from '../src/modules/ai/ai-provider.js';
+import { MENTOR_AI_PROVIDER } from '../src/modules/mentor/mentor-ai.provider.js';
 import { KEYCLOAK_KEY_RESOLVER } from '../src/modules/auth/keycloak-token-verifier.js';
 import { testKeyResolver } from './support/test-identity.js';
 
 /**
- * `aiProvider` replaces the configured AI provider (e.g. a MockAiProvider with fixtures);
- * `overrides` replaces other providers by token.
+ * `aiProvider` replaces the global AI provider (AI_PROVIDER, every feature except the mentor);
+ * `mentorAiProvider` replaces the Career Mentor's own provider (MENTOR_AI_PROVIDER), e.g. a
+ * MockAiProvider with fixtures; `overrides` replaces other providers by token.
  */
 export async function createTestApp(
-  options: { aiProvider?: AiProvider; overrides?: [token: unknown, value: unknown][] } = {},
+  options: {
+    aiProvider?: AiProvider;
+    mentorAiProvider?: AiProvider;
+    overrides?: [token: unknown, value: unknown][];
+  } = {},
 ): Promise<{
   app: NestExpressApplication;
   prisma: PrismaService;
@@ -23,6 +29,8 @@ export async function createTestApp(
     .useValue(testKeyResolver);
   if (options.aiProvider)
     builder = builder.overrideProvider(AI_PROVIDER).useValue(options.aiProvider);
+  if (options.mentorAiProvider)
+    builder = builder.overrideProvider(MENTOR_AI_PROVIDER).useValue(options.mentorAiProvider);
   for (const [token, value] of options.overrides ?? [])
     builder = builder.overrideProvider(token as string).useValue(value);
   const moduleRef = await builder.compile();
