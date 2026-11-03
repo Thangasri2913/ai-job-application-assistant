@@ -6,18 +6,13 @@
     "scheme": "jobassist",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "platforms": [
-      "android"
-    ],
+    "platforms": ["android"],
     "android": {
       "package": "dev.jobassist.mobile",
       "allowBackup": false,
       "softwareKeyboardLayoutMode": "resize"
     },
-    "plugins": [
-      "expo-secure-store",
-      "expo-web-browser"
-    ],
+    "plugins": ["expo-secure-store", "expo-web-browser"],
     "extra": {
       "eas": {
         "projectId": "0fd6e7bb-9b48-4130-9272-ac24e80a6ccc"
