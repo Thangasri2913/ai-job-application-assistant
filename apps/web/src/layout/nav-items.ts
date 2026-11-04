@@ -4,6 +4,7 @@ import {
   BellRing,
   Briefcase,
   FileText,
+  GraduationCap,
   KanbanSquare,
   LayoutDashboard,
   type LucideIcon,
@@ -32,6 +33,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { label: 'Interview', icon: Mic, path: '/interviews', available: true },
   { label: 'Career Profile', icon: BadgeCheck, path: '/profile', available: true },
   { label: 'Career Intelligence', icon: BarChart3, path: '/career-intelligence', available: true },
+  { label: 'Learn & Prepare', icon: GraduationCap, path: '/learn', available: true },
 ];
 
 export const SECONDARY_NAV_ITEMS: readonly NavItem[] = [

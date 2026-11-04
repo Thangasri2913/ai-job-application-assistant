@@ -128,6 +128,87 @@ export const routes: RouteObject[] = [
               ).CareerIntelligencePage,
             }),
           },
+          {
+            path: 'learn',
+            lazy: async () => ({
+              Component: (await import('./features/learn/pages/LearnPage')).LearnPage,
+            }),
+          },
+          {
+            path: 'learn/my-learning',
+            lazy: async () => ({
+              Component: (await import('./features/learn/pages/MyLearningPage')).MyLearningPage,
+            }),
+          },
+          {
+            path: 'learn/plan',
+            lazy: async () => ({
+              Component: (await import('./features/learn/pages/LearningPlanPage')).LearningPlanPage,
+            }),
+          },
+          {
+            path: 'learn/mentor',
+            lazy: async () => ({
+              Component: (await import('./features/learn/pages/MentorPage')).MentorPage,
+            }),
+          },
+          {
+            path: 'learn/revision',
+            lazy: async () => ({
+              Component: (await import('./features/learn/pages/RevisionPage')).RevisionPage,
+            }),
+          },
+          {
+            path: 'learn/interview',
+            lazy: async () => ({
+              Component: (await import('./features/learn/pages/InterviewPracticePage'))
+                .InterviewPracticePage,
+            }),
+          },
+          {
+            path: 'learn/interview/:questionId',
+            lazy: async () => ({
+              Component: (await import('./features/learn/pages/InterviewQuestionPage'))
+                .InterviewQuestionPage,
+            }),
+          },
+          {
+            path: 'learn/projects',
+            lazy: async () => ({
+              Component: (await import('./features/learn/pages/ProjectsPage')).ProjectsPage,
+            }),
+          },
+          {
+            path: 'learn/projects/:challengeId',
+            lazy: async () => ({
+              Component: (await import('./features/learn/pages/ProjectChallengePage'))
+                .ProjectChallengePage,
+            }),
+          },
+          {
+            path: 'learn/jobs',
+            lazy: async () => ({
+              Component: (await import('./features/learn/pages/JobReadinessPage')).JobReadinessPage,
+            }),
+          },
+          {
+            path: 'learn/courses/:courseId',
+            lazy: async () => ({
+              Component: (await import('./features/learn/pages/CourseDetailPage')).CourseDetailPage,
+            }),
+          },
+          {
+            path: 'learn/courses/:courseId/diagnostic',
+            lazy: async () => ({
+              Component: (await import('./features/learn/pages/DiagnosticPage')).DiagnosticPage,
+            }),
+          },
+          {
+            path: 'learn/courses/:courseId/lessons/:lessonId',
+            lazy: async () => ({
+              Component: (await import('./features/learn/pages/LessonPage')).LessonPage,
+            }),
+          },
           // The former "Analytics" placeholder now lives at Career Intelligence.
           { path: 'analytics', element: <Navigate to="/career-intelligence" replace /> },
           {
